@@ -80,7 +80,7 @@ class ValueObservationQueryInterfaceRequestTests: GRDBTestCase {
         
         let recorder = observation.record(in: dbQueue)
         try dbQueue.writeWithoutTransaction(performDatabaseModifications)
-        let results = try wait(for: recorder.next(6), timeout: 5)
+        let results = try wait(for: recorder.next(6), timeout: 1)
         
         XCTAssertNil(results[0])
         
@@ -117,7 +117,7 @@ class ValueObservationQueryInterfaceRequestTests: GRDBTestCase {
         
         let recorder = observation.record(in: dbQueue)
         try dbQueue.writeWithoutTransaction(performDatabaseModifications)
-        let results = try wait(for: recorder.next(6), timeout: 5)
+        let results = try wait(for: recorder.next(6), timeout: 1)
         
         XCTAssertEqual(results[0].count, 0)
         

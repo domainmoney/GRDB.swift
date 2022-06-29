@@ -27,8 +27,8 @@ class DatabaseErrorTests: GRDBTestCase {
             XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT)
             XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
             XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
-            XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)`")
-            XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
+            XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
+            
             XCTAssertEqual(sqlQueries.count, 2)
             XCTAssertEqual(sqlQueries[0], "INSERT INTO pets (masterId, name) VALUES (1, 'Bobby')")
             XCTAssertEqual(sqlQueries[1], "ROLLBACK TRANSACTION")
@@ -60,71 +60,11 @@ class DatabaseErrorTests: GRDBTestCase {
             XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT)
             XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
             XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
-            XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)`")
-            XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
+            XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
         }
     }
 
-    func testDatabaseErrorThrownByUpdateStatementContainSQLAndNoPrivateArguments() throws {
-        let dbQueue = try makeDatabaseQueue()
-        try dbQueue.inDatabase { db in
-            try db.execute(sql: "CREATE TABLE persons (id INTEGER PRIMARY KEY)")
-            try db.execute(sql: "CREATE TABLE pets (masterId INTEGER NOT NULL REFERENCES persons(id), name TEXT)")
-        }
-        
-        // db.execute(sql, arguments)
-        try dbQueue.inDatabase { db in
-            do {
-                try db.execute(sql: "INSERT INTO pets (masterId, name) VALUES (?, ?)", arguments: [1, "Bobby"])
-                XCTFail()
-            } catch let error as DatabaseError {
-                XCTAssert(error.extendedResultCode == .SQLITE_CONSTRAINT_FOREIGNKEY)
-                XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT)
-                XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
-                XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
-                XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)`")
-                XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
-            }
-        }
-        
-        // statement.execute(arguments)
-        try dbQueue.inDatabase { db in
-            do {
-                let statement = try db.makeStatement(sql: "INSERT INTO pets (masterId, name) VALUES (?, ?)")
-                try statement.execute(arguments: [1, "Bobby"])
-                XCTFail()
-            } catch let error as DatabaseError {
-                XCTAssert(error.extendedResultCode == .SQLITE_CONSTRAINT_FOREIGNKEY)
-                XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT)
-                XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
-                XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
-                XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)`")
-                XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
-            }
-        }
-        
-        // statement.execute()
-        try dbQueue.inDatabase { db in
-            do {
-                let statement = try db.makeStatement(sql: "INSERT INTO pets (masterId, name) VALUES (?, ?)")
-                statement.arguments = [1, "Bobby"]
-                try statement.execute()
-                XCTFail()
-            } catch let error as DatabaseError {
-                XCTAssert(error.extendedResultCode == .SQLITE_CONSTRAINT_FOREIGNKEY)
-                XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT)
-                XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
-                XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
-                XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)`")
-                XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
-            }
-        }
-    }
-
-    func testDatabaseErrorThrownByUpdateStatementContainSQLAndPublicArguments() throws {
-        // Opt in for public statement arguments
-        dbConfiguration.publicStatementArguments = true
-        
+    func testDatabaseErrorThrownByUpdateStatementContainSQLAndArguments() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             try db.execute(sql: "CREATE TABLE persons (id INTEGER PRIMARY KEY)")
@@ -142,7 +82,6 @@ class DatabaseErrorTests: GRDBTestCase {
                 XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
                 XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
                 XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
-                XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
             }
         }
         
@@ -158,7 +97,6 @@ class DatabaseErrorTests: GRDBTestCase {
                 XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
                 XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
                 XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
-                XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
             }
         }
         
@@ -175,7 +113,6 @@ class DatabaseErrorTests: GRDBTestCase {
                 XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
                 XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (?, ?)")
                 XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
-                XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (?, ?)` with arguments [1, \"bobby\"]")
             }
         }
     }
@@ -196,7 +133,6 @@ class DatabaseErrorTests: GRDBTestCase {
                 XCTAssertEqual(error.message!.lowercased(), "foreign key constraint failed") // lowercased: accept multiple SQLite version
                 XCTAssertEqual(error.sql!, "INSERT INTO pets (masterId, name) VALUES (1, 'Bobby')")
                 XCTAssertEqual(error.description.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (1, 'bobby')`")
-                XCTAssertEqual(error.expandedDescription.lowercased(), "sqlite error 19: foreign key constraint failed - while executing `insert into pets (masterid, name) values (1, 'bobby')`")
             }
         }
     }
@@ -226,8 +162,8 @@ class DatabaseErrorTests: GRDBTestCase {
                 XCTAssertEqual(DatabaseError.errorDomain, "GRDB.DatabaseError")
                 XCTAssertEqual(error.domain, DatabaseError.errorDomain)
                 XCTAssertEqual(error.code, 787)
-                XCTAssertNotNil(error.localizedFailureReason)
             }
         }
     }
+
 }

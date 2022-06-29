@@ -49,13 +49,7 @@ final class SchedulingWatchdog {
         file: StaticString = #file,
         line: UInt = #line)
     {
-        GRDBPrecondition(allows(db), message(), file: file, line: line)
-    }
-    
-    /// Returns true iff the database argument can be used in the current
-    /// dispatch queue.
-    static func allows(_ db: Database) -> Bool {
-        current?.allows(db) ?? false
+        GRDBPrecondition(current?.allows(db) ?? false, message(), file: file, line: line)
     }
     
     static var current: SchedulingWatchdog? {

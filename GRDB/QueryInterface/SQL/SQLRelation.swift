@@ -205,7 +205,7 @@ extension SQLRelation: Refinable {
         select { _ in expressions.map { .expression($0) } }
     }
     
-    /// Sets the selection, removes all selections from children, and clears the
+    /// Sets the selection, removes all selections from chidren, and clears the
     /// `isDistinct` flag.
     func selectOnly(_ selection: [SQLSelection]) -> Self {
         self
@@ -271,15 +271,6 @@ extension SQLRelation: Refinable {
                     $0.relation = $0.relation.unordered()
                 }
             }
-        }
-    }
-    
-    // Remove ordering iff relation has no LIMIT clause
-    func unorderedUnlessLimited() -> Self {
-        if limit != nil {
-            return self
-        } else {
-            return unordered()
         }
     }
     
@@ -387,7 +378,7 @@ extension SQLRelation {
         // has-many-through associations, where we user the cardinality of
         // the association instead.
         //
-        // By preferring the cardinality of the child kind in general, we make it
+        // By prefering the cardinality of the child kind in general, we make it
         // possible to join to a plural association and decode it in a singular
         // key. In the example below, we have a singular kind `.oneRequired`,
         // a plural to-many association, and we use a singular key:

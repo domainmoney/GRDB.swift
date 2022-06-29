@@ -17,14 +17,10 @@ public class AnyDatabaseCancellable: DatabaseCancellable {
         _cancel = cancel
     }
     
-    /// Creates a cancellable object that forwards cancellation to the
+    /// Initializes a cancellable object that forwards cancellation to the
     /// provided cancellable.
     public convenience init(_ cancellable: DatabaseCancellable) {
-        var cancellable: DatabaseCancellable? = cancellable
-        self.init {
-            cancellable?.cancel()
-            cancellable = nil // Release memory
-        }
+        self.init(cancel: cancellable.cancel)
     }
     
     deinit {

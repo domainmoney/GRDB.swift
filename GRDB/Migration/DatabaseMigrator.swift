@@ -3,7 +3,6 @@ import Combine
 #endif
 import Foundation
 
-// TODO: provide concurrent apis for migrations that run @Sendable closures.
 /// A DatabaseMigrator registers and applies database migrations.
 ///
 /// Migrations are named blocks of SQL statements that are guaranteed to be
@@ -271,7 +270,7 @@ public struct DatabaseMigrator {
     /// - throws: An eventual database error.
     public func appliedIdentifiers(_ db: Database) throws -> Set<String> {
         do {
-            return try String.fetchSet(db, sql: "SELECT identifier FROM grdb_migrations")
+            return try Set(String.fetchCursor(db, sql: "SELECT identifier FROM grdb_migrations"))
         } catch {
             // Rethrow if we can't prove grdb_migrations does not exist yet
             if (try? !db.tableExists("grdb_migrations")) ?? false {
@@ -289,9 +288,9 @@ public struct DatabaseMigrator {
     public func completedMigrations(_ db: Database) throws -> [String] {
         let appliedIdentifiers = try appliedMigrations(db)
         let knownIdentifiers = _migrations.map(\.identifier)
-        return zip(appliedIdentifiers, knownIdentifiers)
-            .prefix(while: { (applied: String, known: String) in applied == known })
-            .map { $0.0 }
+        return Array(zip(appliedIdentifiers, knownIdentifiers)
+                        .prefix(while: { $0 == $1 })
+                        .map { $0.0 })
     }
     
     /// Returns true if all migrations are applied.
@@ -393,7 +392,6 @@ public struct DatabaseMigrator {
                         // just as the migrated database
                         var tmpConfig = db.configuration
                         tmpConfig.targetQueue = nil // Avoid deadlocks
-                        tmpConfig.writeTargetQueue = nil // Avoid deadlocks
                         tmpConfig.label = "GRDB.DatabaseMigrator.temporary"
                         
                         // Create the temporary database on disk, just in

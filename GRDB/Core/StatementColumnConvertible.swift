@@ -138,42 +138,76 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
 ///             print(name)
 ///         }
 ///     }
-public final class FastDatabaseValueCursor<Value>: DatabaseCursor
-where Value: DatabaseValueConvertible & StatementColumnConvertible
-{
-    public typealias Element = Value
-    public let statement: Statement
-    /// :nodoc:
-    public var _isDone = false
-    @usableFromInline let columnIndex: Int32
+public final class FastDatabaseValueCursor<Value: DatabaseValueConvertible & StatementColumnConvertible> : Cursor {
+    @usableFromInline
+    enum _State {
+        case idle, busy, done, failed
+    }
+    
+    @usableFromInline let _statement: Statement
+    @usableFromInline let _columnIndex: Int32
+    @usableFromInline let _sqliteStatement: SQLiteStatement
+    @usableFromInline var _state = _State.idle
     
     init(statement: Statement, arguments: StatementArguments? = nil, adapter: RowAdapter? = nil) throws {
-        self.statement = statement
+        _statement = statement
+        _sqliteStatement = statement.sqliteStatement
         if let adapter = adapter {
             // adapter may redefine the index of the leftmost column
-            columnIndex = try Int32(adapter.baseColumnIndex(atIndex: 0, layout: statement))
+            _columnIndex = try Int32(adapter.baseColumnIndex(atIndex: 0, layout: statement))
         } else {
-            columnIndex = 0
+            _columnIndex = 0
         }
         
         // Assume cursor is created for immediate iteration: reset and set arguments
-        try statement.reset(withArguments: arguments)
+        statement.reset(withArguments: arguments)
     }
     
     deinit {
+        if _state == .busy {
+            try? _statement.database.statementDidExecute(_statement)
+        }
+        
         // Statement reset fails when sqlite3_step has previously failed.
         // Just ignore reset error.
-        try? statement.reset()
+        try? _statement.reset()
     }
     
-    /// :nodoc:
     @inlinable
-    public func _element(sqliteStatement: SQLiteStatement) -> Value {
-        // TODO GRDB6: don't crash on decoding errors
-        try! Value.fastDecode(
-            fromStatement: sqliteStatement,
-            atUncheckedIndex: columnIndex,
-            context: RowDecodingContext(statement: statement, index: Int(columnIndex)))
+    public func next() throws -> Value? {
+        switch _state {
+        case .done:
+            // make sure this instance never yields a value again, even if the
+            // statement is reset by another cursor.
+            return nil
+        case .idle:
+            guard try _statement.database.statementWillExecute(_statement) == nil else {
+                throw DatabaseError(
+                    resultCode: SQLITE_MISUSE,
+                    message: "Can't run statement that requires a customized authorizer from a cursor",
+                    sql: _statement.sql,
+                    arguments: _statement.arguments)
+            }
+            _state = .busy
+        default:
+            break
+        }
+        
+        switch sqlite3_step(_sqliteStatement) {
+        case SQLITE_DONE:
+            _state = .done
+            try _statement.database.statementDidExecute(_statement)
+            return nil
+        case SQLITE_ROW:
+            // TODO GRDB6: don't crash on decoding errors
+            return try! Value.fastDecode(
+                fromStatement: _sqliteStatement,
+                atUncheckedIndex: _columnIndex,
+                context: RowDecodingContext(statement: _statement, index: Int(_columnIndex)))
+        case let code:
+            _state = .failed
+            try _statement.database.statementDidFail(_statement, withResultCode: code)
+        }
     }
 }
 
@@ -187,42 +221,78 @@ where Value: DatabaseValueConvertible & StatementColumnConvertible
 ///             print(email ?? "<NULL>")
 ///         }
 ///     }
-public final class FastNullableDatabaseValueCursor<Value>: DatabaseCursor
+public final class FastNullableDatabaseValueCursor<Value>: Cursor
 where Value: DatabaseValueConvertible & StatementColumnConvertible
 {
-    public typealias Element = Value?
-    public let statement: Statement
-    /// :nodoc:
-    public var _isDone = false
-    @usableFromInline let columnIndex: Int32
+    @usableFromInline
+    enum _State {
+        case idle, busy, done, failed
+    }
+    
+    @usableFromInline let _statement: Statement
+    @usableFromInline let _columnIndex: Int32
+    @usableFromInline let _sqliteStatement: SQLiteStatement
+    @usableFromInline var _state = _State.idle
     
     init(statement: Statement, arguments: StatementArguments? = nil, adapter: RowAdapter? = nil) throws {
-        self.statement = statement
+        _statement = statement
+        _sqliteStatement = statement.sqliteStatement
         if let adapter = adapter {
             // adapter may redefine the index of the leftmost column
-            columnIndex = try Int32(adapter.baseColumnIndex(atIndex: 0, layout: statement))
+            _columnIndex = try Int32(adapter.baseColumnIndex(atIndex: 0, layout: statement))
         } else {
-            columnIndex = 0
+            _columnIndex = 0
         }
         
         // Assume cursor is created for immediate iteration: reset and set arguments
-        try statement.reset(withArguments: arguments)
+        statement.reset(withArguments: arguments)
     }
     
     deinit {
+        if _state == .busy {
+            try? _statement.database.statementDidExecute(_statement)
+        }
+        
         // Statement reset fails when sqlite3_step has previously failed.
         // Just ignore reset error.
-        try? statement.reset()
+        try? _statement.reset()
     }
     
-    /// :nodoc:
     @inlinable
-    public func _element(sqliteStatement: SQLiteStatement) -> Value? {
-        // TODO GRDB6: don't crash on decoding errors
-        try! Value.fastDecodeIfPresent(
-            fromStatement: sqliteStatement,
-            atUncheckedIndex: columnIndex,
-            context: RowDecodingContext(statement: statement, index: Int(columnIndex)))
+    public func next() throws -> Value?? {
+        switch _state {
+        case .done:
+            // make sure this instance never yields a value again, even if the
+            // statement is reset by another cursor.
+            return nil
+        case .idle:
+            guard try _statement.database.statementWillExecute(_statement) == nil else {
+                throw DatabaseError(
+                    resultCode: SQLITE_MISUSE,
+                    message: "Can't run statement that requires a customized authorizer from a cursor",
+                    sql: _statement.sql,
+                    arguments: _statement.arguments)
+            }
+            _state = .busy
+        default:
+            break
+        }
+        
+        switch sqlite3_step(_sqliteStatement) {
+        case SQLITE_DONE:
+            _state = .done
+            try _statement.database.statementDidExecute(_statement)
+            return nil
+        case SQLITE_ROW:
+            // TODO GRDB6: don't crash on decoding errors
+            return try! Value.fastDecodeIfPresent(
+                fromStatement: _sqliteStatement,
+                atUncheckedIndex: _columnIndex,
+                context: RowDecodingContext(statement: _statement, index: Int(_columnIndex)))
+        case let code:
+            _state = .failed
+            try _statement.database.statementDidFail(_statement, withResultCode: code)
+        }
     }
 }
 

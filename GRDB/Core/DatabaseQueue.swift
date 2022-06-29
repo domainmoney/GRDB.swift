@@ -6,7 +6,7 @@ import UIKit
 
 /// A DatabaseQueue serializes access to an SQLite database.
 public final class DatabaseQueue: DatabaseWriter {
-    private let writer: SerializedDatabase
+    private var writer: SerializedDatabase
     
     // MARK: - Configuration
     
@@ -92,20 +92,15 @@ extension DatabaseQueue {
     /// as much memory as possible.
     private func setupMemoryManagement() {
         let center = NotificationCenter.default
-        
-        // Use raw notification names because of
-        // FB9801372 (UIApplication.didReceiveMemoryWarningNotification should not be declared @MainActor)
-        // TODO: Reuse UIApplication.didReceiveMemoryWarningNotification when possible.
-        // TODO: Reuse UIApplication.didEnterBackgroundNotification when possible.
         center.addObserver(
             self,
             selector: #selector(DatabaseQueue.applicationDidReceiveMemoryWarning(_:)),
-            name: NSNotification.Name(rawValue: "UIApplicationDidReceiveMemoryWarningNotification"),
+            name: UIApplication.didReceiveMemoryWarningNotification,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(DatabaseQueue.applicationDidEnterBackground(_:)),
-            name: NSNotification.Name(rawValue: "UIApplicationDidEnterBackgroundNotification"),
+            name: UIApplication.didEnterBackgroundNotification,
             object: nil)
     }
     
@@ -183,12 +178,16 @@ extension DatabaseQueue {
     
     // MARK: - Reading from Database
     
-    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func read<T>(_ value: (Database) throws -> T) throws -> T {
         try writer.sync { db in
-            try db.isolated(readOnly: true) {
-                try value(db)
+            // The transaction guarantees snapshot isolation against eventual
+            // external connection.
+            var result: T?
+            try db.inTransaction(.deferred) {
+                result = try db.readOnly { try value(db) }
+                return .commit
             }
+            return result!
         }
     }
     
@@ -212,12 +211,34 @@ extension DatabaseQueue {
         }
     }
     
-    public func unsafeRead<T>(_ value: (Database) throws -> T) rethrows -> T {
-        try writer.sync(value)
+    /// :nodoc:
+    public func _weakAsyncRead(_ value: @escaping (Result<Database, Error>?) -> Void) {
+        writer.weakAsync { db in
+            guard let db = db else {
+                value(nil)
+                return
+            }
+            
+            do {
+                // The transaction guarantees snapshot isolation against eventual
+                // external connection.
+                try db.beginTransaction(.deferred)
+                try db.beginReadOnly()
+            } catch {
+                value(.failure(error))
+                return
+            }
+            
+            value(.success(db))
+            
+            // Ignore error because we can not notify it.
+            try? db.endReadOnly()
+            try? db.commit()
+        }
     }
     
-    public func asyncUnsafeRead(_ value: @escaping (Result<Database, Error>) -> Void) {
-        writer.async { value(.success($0)) }
+    public func unsafeRead<T>(_ value: (Database) throws -> T) rethrows -> T {
+        try writer.sync(value)
     }
     
     public func unsafeReentrantRead<T>(_ value: (Database) throws -> T) rethrows -> T {
@@ -228,11 +249,18 @@ extension DatabaseQueue {
         // DatabaseQueue can't perform parallel reads.
         // Perform a blocking read instead.
         return DatabaseFuture(Result {
-            // Check that we're on the writer queue, as documented
+            // Check that we're on the writer queue...
             try writer.execute { db in
-                try db.isolated(readOnly: true) {
-                    try value(db)
+                // ... and that no transaction is opened.
+                GRDBPrecondition(!db.isInsideTransaction, "must not be called from inside a transaction.")
+                // The transaction guarantees snapshot isolation against eventual
+                // external connection.
+                var result: T?
+                try db.inTransaction(.deferred) {
+                    result = try db.readOnly { try value(db) }
+                    return .commit
                 }
+                return result!
             }
         })
     }
@@ -301,12 +329,10 @@ extension DatabaseQueue {
         }
     }
     
-    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func writeWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T {
         try writer.sync(updates)
     }
     
-    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func barrierWriteWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T {
         try writer.sync(updates)
     }
@@ -340,6 +366,11 @@ extension DatabaseQueue {
         writer.async(updates)
     }
     
+    /// :nodoc:
+    public func _weakAsyncWriteWithoutTransaction(_ updates: @escaping (Database?) -> Void) {
+        writer.weakAsync(updates)
+    }
+    
     // MARK: - Database Observation
     
     /// :nodoc:
@@ -350,17 +381,16 @@ extension DatabaseQueue {
     -> DatabaseCancellable
     {
         if configuration.readonly {
-            // The easy case: the database does not change
             return _addReadOnly(
                 observation: observation,
                 scheduling: scheduler,
                 onChange: onChange)
-        } else {
-            // Observe from the writer database connection.
-            return _addWriteOnly(
-                observation: observation,
-                scheduling: scheduler,
-                onChange: onChange)
         }
+        
+        let observer = _addWriteOnly(
+            observation: observation,
+            scheduling: scheduler,
+            onChange: onChange)
+        return AnyDatabaseCancellable(cancel: observer.cancel)
     }
 }

@@ -3,45 +3,29 @@ import SwiftUI
 /// The Player editing form, embedded in both
 /// `PlayerCreationView` and `PlayerEditionView`.
 struct PlayerFormView: View {
-    @Binding var form: PlayerForm
-    
+    @Binding var name: String
+    @Binding var score: String
+        
     var body: some View {
         List {
-            TextField("Name", text: $form.name)
+            TextField("Name", text: $name)
                 .accessibility(label: Text("Player Name"))
-            TextField("Score", text: $form.score).keyboardType(.numberPad)
+            TextField("Score", text: $score).keyboardType(.numberPad)
                 .accessibility(label: Text("Player Score"))
         }
         .listStyle(InsetGroupedListStyle())
     }
 }
 
-struct PlayerForm {
-    var name: String
-    var score: String
-}
-
-extension PlayerForm {
-    init(_ player: Player) {
-        self.name = player.name
-        self.score = "\(player.score)"
-    }
-    
-    func apply(to player: inout Player) {
-        player.name = name
-        player.score = Int(score) ?? 0
-    }
-}
-
 struct PlayerFormView_Previews: PreviewProvider {
     static var previews: some View {
         Group {
-            PlayerFormView(form: .constant(PlayerForm(
-                name: "",
-                score: "")))
-            PlayerFormView(form: .constant(PlayerForm(
-                name: Player.randomName(),
-                score: "\(Player.randomScore())")))
+            PlayerFormView(
+                name: .constant(""),
+                score: .constant(""))
+            PlayerFormView(
+                name: .constant(Player.randomName()),
+                score: .constant("\(Player.randomScore())"))
         }
     }
 }

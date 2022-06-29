@@ -33,46 +33,6 @@ class TableDefinitionTests: GRDBTestCase {
                 ) WITHOUT ROWID
                 """)
         }
-        
-        try dbQueue.inDatabase { db in
-            try db.create(table: "test2", options: [.temporary, .ifNotExists, .withoutRowID]) { t in
-                t.column("id", .integer).primaryKey()
-            }
-            assertEqualSQL(lastSQLQuery!, """
-                CREATE TEMPORARY TABLE IF NOT EXISTS "test2" (\
-                "id" INTEGER PRIMARY KEY\
-                ) WITHOUT ROWID
-                """)
-        }
-        
-#if GRDBCUSTOMSQLITE
-        try dbQueue.inDatabase { db in
-            try db.create(table: "test3", options: [.strict, .withoutRowID]) { t in
-                t.column("id", .integer).primaryKey()
-                t.column("a", .integer)
-                t.column("b", .real)
-                t.column("c", .text)
-                t.column("d", .blob)
-                t.column("e", .any)
-            }
-            assertEqualSQL(lastSQLQuery!, """
-                CREATE TABLE "test3" (\
-                "id" INTEGER PRIMARY KEY, \
-                "a" INTEGER, \
-                "b" REAL, \
-                "c" TEXT, \
-                "d" BLOB, \
-                "e" ANY\
-                ) STRICT, WITHOUT ROWID
-                """)
-            
-            do {
-                try db.execute(sql: "INSERT INTO test3 (id, a) VALUES (1, 'foo')")
-                XCTFail("Expected DatabaseError.SQLITE_CONSTRAINT_DATATYPE")
-            } catch DatabaseError.SQLITE_CONSTRAINT_DATATYPE {
-            }
-        }
-#endif
     }
     
     func testColumnLiteral() throws {
@@ -200,7 +160,7 @@ class TableDefinitionTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             sqlQueries.removeAll()
-            try db.create(table: "test", options: [.ifNotExists]) { t in
+            try db.create(table: "test", ifNotExists: true) { t in
                 t.column("a", .integer).indexed()
                 t.column("b", .integer).indexed()
             }
@@ -613,21 +573,6 @@ class TableDefinitionTests: GRDBTestCase {
         }
     }
     
-    func testAlterTableAddColumnInvalidatesSchemaCache() throws {
-        let dbQueue = try makeDatabaseQueue()
-        try dbQueue.inDatabase { db in
-            try db.create(table: "test") { t in
-                t.column("a", .text)
-            }
-            try XCTAssertEqual(db.columns(in: "test").map(\.name), ["a"])
-
-            try db.alter(table: "test") { t in
-                t.add(column: "b", .text)
-            }
-            try XCTAssertEqual(db.columns(in: "test").map(\.name), ["a", "b"])
-        }
-    }
-
     func testAlterTableRenameColumn() throws {
         guard sqlite3_libversion_number() >= 3025000 else {
             throw XCTSkip("ALTER TABLE RENAME COLUMN is not available")
@@ -653,29 +598,6 @@ class TableDefinitionTests: GRDBTestCase {
             assertEqualSQL(sqlQueries[sqlQueries.count - 3], "ALTER TABLE \"test\" RENAME COLUMN \"a\" TO \"b\"")
             assertEqualSQL(sqlQueries[sqlQueries.count - 2], "ALTER TABLE \"test\" ADD COLUMN \"c\"")
             assertEqualSQL(sqlQueries[sqlQueries.count - 1], "ALTER TABLE \"test\" RENAME COLUMN \"c\" TO \"d\"")
-        }
-    }
-
-    func testAlterTableRenameColumnInvalidatesSchemaCache() throws {
-        guard sqlite3_libversion_number() >= 3025000 else {
-            throw XCTSkip("ALTER TABLE RENAME COLUMN is not available")
-        }
-        #if !GRDBCUSTOMSQLITE && !GRDBCIPHER
-        guard #available(iOS 13.0, tvOS 13.0, watchOS 6.0, *) else {
-            throw XCTSkip("ALTER TABLE RENAME COLUMN is not available")
-        }
-        #endif
-        let dbQueue = try makeDatabaseQueue()
-        try dbQueue.inDatabase { db in
-            try db.create(table: "test") { t in
-                t.column("a", .text)
-            }
-            try XCTAssertEqual(db.columns(in: "test").map(\.name), ["a"])
-            
-            try db.alter(table: "test") { t in
-                t.rename(column: "a", to: "b")
-            }
-            try XCTAssertEqual(db.columns(in: "test").map(\.name), ["b"])
         }
     }
     
@@ -710,54 +632,6 @@ class TableDefinitionTests: GRDBTestCase {
         #endif
     }
     
-    func testAlterTableDropColumn() throws {
-        guard sqlite3_libversion_number() >= 3035000 else {
-            throw XCTSkip("ALTER TABLE DROP COLUMN is not available")
-        }
-        #if !GRDBCUSTOMSQLITE && !GRDBCIPHER
-        guard #available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) else {
-            throw XCTSkip("ALTER TABLE DROP COLUMN is not available")
-        }
-        #endif
-        let dbQueue = try makeDatabaseQueue()
-        try dbQueue.inDatabase { db in
-            try db.create(table: "test") { t in
-                t.column("a", .text)
-                t.column("b", .text)
-            }
-            
-            sqlQueries.removeAll()
-            try db.alter(table: "test") { t in
-                t.drop(column: "b")
-            }
-            assertEqualSQL(lastSQLQuery!, "ALTER TABLE \"test\" DROP COLUMN \"b\"")
-        }
-    }
-    
-    func testAlterTableDropColumnInvalidatesSchemaCache() throws {
-        guard sqlite3_libversion_number() >= 3035000 else {
-            throw XCTSkip("ALTER TABLE DROP COLUMN is not available")
-        }
-        #if !GRDBCUSTOMSQLITE && !GRDBCIPHER
-        guard #available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) else {
-            throw XCTSkip("ALTER TABLE DROP COLUMN is not available")
-        }
-        #endif
-        let dbQueue = try makeDatabaseQueue()
-        try dbQueue.inDatabase { db in
-            try db.create(table: "test") { t in
-                t.column("a", .text)
-                t.column("b", .text)
-            }
-            try XCTAssertEqual(db.columns(in: "test").map(\.name), ["a", "b"])
-            
-            try db.alter(table: "test") { t in
-                t.drop(column: "b")
-            }
-            try XCTAssertEqual(db.columns(in: "test").map(\.name), ["a"])
-        }
-    }
-    
     func testDropTable() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -789,11 +663,8 @@ class TableDefinitionTests: GRDBTestCase {
             try db.create(index: "test_on_a_b", on: "test", columns: ["a", "b"], unique: true, ifNotExists: true)
             assertEqualSQL(lastSQLQuery!, "CREATE UNIQUE INDEX IF NOT EXISTS \"test_on_a_b\" ON \"test\"(\"a\", \"b\")")
             
-            try db.create(index: "test_on_a_b_2", on: "test", columns: ["a", "b"], options: [.unique, .ifNotExists])
-            assertEqualSQL(lastSQLQuery!, "CREATE UNIQUE INDEX IF NOT EXISTS \"test_on_a_b_2\" ON \"test\"(\"a\", \"b\")")
-            
             // Sanity check
-            XCTAssertEqual(try Set(db.indexes(on: "test").map(\.name)), ["test_on_a", "test_on_a_b", "test_on_a_b_2"])
+            XCTAssertEqual(try Set(db.indexes(on: "test").map(\.name)), ["test_on_a", "test_on_a_b"])
         }
     }
     
@@ -806,7 +677,7 @@ class TableDefinitionTests: GRDBTestCase {
                 t.column("b", .text)
             }
             
-            try db.create(index: "test_on_a_b", on: "test", columns: ["a", "b"], options: [.unique, .ifNotExists], condition: Column("a") == 1)
+            try db.create(index: "test_on_a_b", on: "test", columns: ["a", "b"], unique: true, ifNotExists: true, condition: Column("a") == 1)
             assertEqualSQL(lastSQLQuery!, "CREATE UNIQUE INDEX IF NOT EXISTS \"test_on_a_b\" ON \"test\"(\"a\", \"b\") WHERE \"a\" = 1")
             
             // Sanity check

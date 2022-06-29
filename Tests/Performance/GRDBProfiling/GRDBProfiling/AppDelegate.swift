@@ -202,7 +202,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         try dbQueue.write(_insertPositionalValues)
         
-        try dbQueue.read { db in
+        dbQueue.read { db in
             assert(try! Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items")! == insertedRowCount)
             assert(try! Int.fetchOne(db, sql: "SELECT MIN(i0) FROM items")! == 0)
             assert(try! Int.fetchOne(db, sql: "SELECT MAX(i9) FROM items")! == insertedRowCount - 1)
@@ -231,7 +231,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         try dbQueue.write(_insertNamedValues)
         
-        try dbQueue.read { db in
+        dbQueue.read { db in
             assert(try! Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items")! == insertedRowCount)
             assert(try! Int.fetchOne(db, sql: "SELECT MIN(i0) FROM items")! == 0)
             assert(try! Int.fetchOne(db, sql: "SELECT MAX(i9) FROM items")! == insertedRowCount - 1)
@@ -260,7 +260,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         try dbQueue.write(_insertStructs)
         
-        try dbQueue.read { db in
+        dbQueue.read { db in
             assert(try! Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items")! == insertedRowCount)
             assert(try! Int.fetchOne(db, sql: "SELECT MIN(i0) FROM items")! == 0)
             assert(try! Int.fetchOne(db, sql: "SELECT MAX(i9) FROM items")! == insertedRowCount - 1)
@@ -288,7 +288,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         try dbQueue.write(_insertCodables)
         
-        try dbQueue.read { db in
+        dbQueue.read { db in
             assert(try! Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items")! == insertedRowCount)
             assert(try! Int.fetchOne(db, sql: "SELECT MIN(i0) FROM items")! == 0)
             assert(try! Int.fetchOne(db, sql: "SELECT MAX(i9) FROM items")! == insertedRowCount - 1)
@@ -316,7 +316,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         try dbQueue.write(_insertRecords)
         
-        try dbQueue.read { db in
+        dbQueue.read { db in
             assert(try! Int.fetchOne(db, sql: "SELECT COUNT(*) FROM items")! == insertedRowCount)
             assert(try! Int.fetchOne(db, sql: "SELECT MIN(i0) FROM items")! == 0)
             assert(try! Int.fetchOne(db, sql: "SELECT MAX(i9) FROM items")! == insertedRowCount - 1)

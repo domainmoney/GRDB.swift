@@ -7,9 +7,9 @@ import Foundation
 public protocol TypedRequest {
     /// The type that can decode database rows.
     ///
-    /// In the request below, it is Player:
+    /// In the request below, it is Book:
     ///
-    ///     let request = Player.all()
+    ///     let request = Book.all()
     associatedtype RowDecoder
 }
 
@@ -325,7 +325,7 @@ extension TableRequest where Self: FilteredRequest, Self: TypedRequest {
     
     /// Creates a request filtered by unique key.
     ///
-    ///     // SELECT * FROM player WHERE ... email = 'arthur@example.com' AND ...
+    ///     // SELECT * FROM player WHERE ... email = 'arthur@example.com' OR ...
     ///     let request = try Player...filter(keys: [["email": "arthur@example.com"], ...])
     ///
     /// When executed, this request raises a fatal error if there is no unique
@@ -703,94 +703,6 @@ extension JoinableRequest {
     }
 }
 
-extension JoinableRequest where Self: SelectionRequest {
-    /// Creates a request which appends *columns of an associated record* to
-    /// the current selection.
-    ///
-    ///     // SELECT player.*, team.color
-    ///     // FROM player LEFT JOIN team ...
-    ///     let teamColor = Player.team.select(Column("color"))
-    ///     let request = Player.all().annotated(withOptional: teamColor)
-    ///
-    /// This method performs the same SQL request as `including(optional:)`.
-    /// The difference is in the shape of Decodable records that decode such
-    /// a request: the associated columns can be decoded at the same level as
-    /// the main record:
-    ///
-    ///     struct PlayerWithTeamColor: FetchableRecord, Decodable {
-    ///         var player: Player
-    ///         var color: String?
-    ///     }
-    ///     let players = try dbQueue.read { db in
-    ///         try request
-    ///             .asRequest(of: PlayerWithTeamColor.self)
-    ///             .fetchAll(db)
-    ///     }
-    ///
-    /// Note: this is a convenience method. You can build the same request with
-    /// `TableAlias`, `annotated(with:)`, and `joining(optional:)`:
-    ///
-    ///     let teamAlias = TableAlias()
-    ///     let request = Player.all()
-    ///         .annotated(with: teamAlias[Column("color")])
-    ///         .joining(optional: Player.team.aliased(teamAlias))
-    public func annotated<A: Association>(withOptional association: A) -> Self where A.OriginRowDecoder == RowDecoder {
-        // TODO: find a way to prefix the selection with the association key
-        let alias = TableAlias()
-        let selection = association._sqlAssociation.destination.relation.selectionPromise
-        return self
-            .joining(optional: association.aliased(alias))
-            .annotated(with: { db in
-                try selection.resolve(db).map { selection in
-                    selection.qualified(with: alias)
-                }
-            })
-    }
-    
-    /// Creates a request which appends *columns of an associated record* to
-    /// the current selection.
-    ///
-    ///     // SELECT player.*, team.color
-    ///     // FROM player JOIN team ...
-    ///     let teamColor = Player.team.select(Column("color"))
-    ///     let request = Player.all().annotated(withRequired: teamColor)
-    ///
-    /// This method performs the same SQL request as `including(required:)`.
-    /// The difference is in the shape of Decodable records that decode such
-    /// a request: the associated columns can be decoded at the same level as
-    /// the main record:
-    ///
-    ///     struct PlayerWithTeamColor: FetchableRecord, Decodable {
-    ///         var player: Player
-    ///         var color: String
-    ///     }
-    ///     let players = try dbQueue.read { db in
-    ///         try request
-    ///             .asRequest(of: PlayerWithTeamColor.self)
-    ///             .fetchAll(db)
-    ///     }
-    ///
-    /// Note: this is a convenience method. You can build the same request with
-    /// `TableAlias`, `annotated(with:)`, and `joining(required:)`:
-    ///
-    ///     let teamAlias = TableAlias()
-    ///     let request = Player.all()
-    ///         .annotated(with: teamAlias[Column("color")])
-    ///         .joining(required: Player.team.aliased(teamAlias))
-    public func annotated<A: Association>(withRequired association: A) -> Self where A.OriginRowDecoder == RowDecoder {
-        // TODO: find a way to prefix the selection with the association key
-        let selection = association._sqlAssociation.destination.relation.selectionPromise
-        let alias = TableAlias()
-        return self
-            .joining(required: association.aliased(alias))
-            .annotated(with: { db in
-                try selection.resolve(db).map { selection in
-                    selection.qualified(with: alias)
-                }
-            })
-    }
-}
-
 // MARK: - DerivableRequest
 
 /// The base protocol for all requests that can be refined.
@@ -885,20 +797,20 @@ extension DerivableRequest {
     
     /// Creates a request which appends *aggregates* to the current selection.
     ///
-    ///     // SELECT team.*, COUNT(DISTINCT player.id) AS playerCount
-    ///     // FROM team LEFT JOIN player ...
-    ///     var request = Team.all()
-    ///     request = request.annotated(with: Team.players.count)
+    ///     // SELECT player.*, COUNT(DISTINCT book.id) AS bookCount
+    ///     // FROM player LEFT JOIN book ...
+    ///     var request = Player.all()
+    ///     request = request.annotated(with: Player.books.count)
     public func annotated(with aggregates: AssociationAggregate<RowDecoder>...) -> Self {
         annotated(with: aggregates)
     }
     
     /// Creates a request which appends *aggregates* to the current selection.
     ///
-    ///     // SELECT team.*, COUNT(DISTINCT player.id) AS playerCount
-    ///     // FROM team LEFT JOIN player ...
-    ///     var request = team.all()
-    ///     request = request.annotated(with: [Team.players.count])
+    ///     // SELECT player.*, COUNT(DISTINCT book.id) AS bookCount
+    ///     // FROM player LEFT JOIN book ...
+    ///     var request = Player.all()
+    ///     request = request.annotated(with: [Player.books.count])
     public func annotated(with aggregates: [AssociationAggregate<RowDecoder>]) -> Self {
         aggregates.reduce(self) { request, aggregate in
             request.annotated(with: aggregate)
@@ -908,11 +820,11 @@ extension DerivableRequest {
     /// Creates a request which appends the provided aggregate *predicate* to
     /// the eventual set of already applied predicates.
     ///
-    ///     // SELECT team.*
-    ///     // FROM team LEFT JOIN player ...
-    ///     // HAVING COUNT(DISTINCT player.id) = 0
-    ///     var request = Team.all()
-    ///     request = request.having(Team.players.isEmpty)
+    ///     // SELECT player.*
+    ///     // FROM player LEFT JOIN book ...
+    ///     // HAVING COUNT(DISTINCT book.id) = 0
+    ///     var request = Player.all()
+    ///     request = request.having(Player.books.isEmpty)
     public func having(_ predicate: AssociationAggregate<RowDecoder>) -> Self {
         var request = self
         let expression = predicate.prepare(&request)

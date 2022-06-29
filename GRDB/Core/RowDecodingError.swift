@@ -1,6 +1,6 @@
 /// A key that is used to decode a value in a row
 @usableFromInline
-enum RowKey: Hashable, GRDBSendable {
+enum RowKey: Hashable {
     /// A column name
     case columnName(String)
     
@@ -18,15 +18,13 @@ enum RowKey: Hashable, GRDBSendable {
 @usableFromInline
 enum RowDecodingError: Error {
     @usableFromInline
-    struct Context: CustomDebugStringConvertible, GRDBSendable {
+    struct Context: CustomDebugStringConvertible {
         /// A description of what went wrong, for debugging purposes.
         @usableFromInline
         let debugDescription: String
         
-        let rowImpl: ArrayRowImpl // Sendable
-        
         /// The row that could not be decoded
-        var row: Row { Row(impl: rowImpl) }
+        let row: Row
         
         /// Nil for RowDecodingError.keyNotFound, in order to avoid redundancy
         let key: RowKey?
@@ -39,7 +37,7 @@ enum RowDecodingError: Error {
         
         init(decodingContext: RowDecodingContext, debugDescription: String) {
             self.debugDescription = debugDescription
-            self.rowImpl = ArrayRowImpl(columns: decodingContext.row)
+            self.row = decodingContext.row
             self.key = decodingContext.key
             self.sql = decodingContext.sql
             self.statementArguments = decodingContext.statementArguments
@@ -177,15 +175,15 @@ extension RowDecodingError: CustomStringConvertible {
                     chunks.append("column: \(String(reflecting: columnName))")
                     chunks.append("column index: \(columnIndex)")
                 } else {
-                    // column name is already mentioned in context.debugDescription
+                    // column name is already mentionned in context.debugDescription
                 }
                 
             case .prefetchKey:
-                // key is already mentioned in context.debugDescription
+                // key is already mentionned in context.debugDescription
                 break
                 
             case .scope:
-                // scope is already mentioned in context.debugDescription
+                // scope is already mentionned in context.debugDescription
                 break
             }
         }

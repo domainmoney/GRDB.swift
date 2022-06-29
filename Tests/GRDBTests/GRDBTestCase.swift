@@ -5,7 +5,7 @@ import XCTest
 // Support for Database.logError
 var lastResultCode: ResultCode? = nil
 var lastMessage: String? = nil
-let logErrorSetup: Void = {
+var logErrorSetup: Void = {
     let lock = NSLock()
     Database.logError = { (resultCode, message) in
         lock.lock()
@@ -105,7 +105,7 @@ class GRDBTestCase: XCTestCase {
         
         dbConfiguration.prepareDatabase { db in
             db.trace { event in
-                self.sqlQueries.append(event.expandedDescription)
+                self.sqlQueries.append(event.description)
             }
             
             #if GRDBCIPHER_USE_ENCRYPTION
@@ -242,6 +242,8 @@ public struct AnyValueReducer<Fetched, Value>: ValueReducer {
     private var __fetch: (Database) throws -> Fetched
     private var __value: (Fetched) -> Value?
     
+    public var _isSelectedRegionDeterministic: Bool { false }
+    
     public init(
         fetch: @escaping (Database) throws -> Fetched,
         value: @escaping (Fetched) -> Value?)
@@ -258,8 +260,3 @@ public struct AnyValueReducer<Fetched, Value>: ValueReducer {
         __value(fetched)
     }
 }
-
-#if swift(>=5.6) && canImport(_Concurrency)
-// Assume this is correct :-/
-extension XCTestExpectation: @unchecked Sendable { }
-#endif

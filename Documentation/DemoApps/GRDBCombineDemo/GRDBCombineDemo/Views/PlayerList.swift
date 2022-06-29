@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PlayerList: View {
-    /// Write access to the database
+    /// Database access
     @Environment(\.appDatabase) private var appDatabase
     
     /// The players in the list
@@ -11,19 +11,16 @@ struct PlayerList: View {
         List {
             ForEach(players) { player in
                 NavigationLink(destination: editionView(for: player)) {
-                    PlayerRow(player: player)
-                        // Don't animate player update
-                        .animation(nil, value: player)
+                    PlayerRow(player: player).animation(nil)
                 }
             }
-            .onDelete { offsets in
+            .onDelete(perform: { offsets in
                 let playerIds = offsets.compactMap { players[$0].id }
-                try? appDatabase.deletePlayers(ids: playerIds)
-            }
+                try? appDatabase?.deletePlayers(ids: playerIds)
+            })
         }
-        // Animate list updates
-        .animation(.default, value: players)
-        .listStyle(.plain)
+        .animation(.default)
+        .listStyle(PlainListStyle())
     }
     
     /// The view that edits a player in the list.
@@ -51,7 +48,7 @@ struct PlayerList_Previews: PreviewProvider {
                 Player(id: 1, name: "Arthur", score: 100),
                 Player(id: 2, name: "Barbara", score: 1000),
             ])
-                .navigationTitle("Preview")
+            .navigationTitle("Preview")
         }
     }
 }

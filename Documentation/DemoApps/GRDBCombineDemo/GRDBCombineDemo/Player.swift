@@ -32,7 +32,7 @@ extension Player {
     }
     
     /// Creates a new player with random name and random score
-    static func makeRandom() -> Player {
+    static func newRandom() -> Player {
         Player(id: nil, name: randomName(), score: randomScore())
     }
     

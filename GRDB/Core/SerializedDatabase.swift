@@ -9,7 +9,7 @@ final class SerializedDatabase {
     var configuration: Configuration { db.configuration }
     
     /// The path to the database file
-    let path: String
+    var path: String
     
     /// The dispatch queue
     private let queue: DispatchQueue
@@ -47,11 +47,7 @@ final class SerializedDatabase {
             path: path,
             description: identifier,
             configuration: config)
-        if config.readonly {
-            self.queue = configuration.makeReaderDispatchQueue(label: identifier)
-        } else {
-            self.queue = configuration.makeWriterDispatchQueue(label: identifier)
-        }
+        self.queue = configuration.makeDispatchQueue(label: identifier)
         SchedulingWatchdog.allowDatabase(db, onQueue: queue)
         try queue.sync {
             do {
@@ -197,6 +193,19 @@ final class SerializedDatabase {
         }
     }
     
+    /// Asynchronously executes a block in the serialized dispatch queue,
+    /// without retaining self.
+    func weakAsync(_ block: @escaping (Database?) -> Void) {
+        queue.async { [weak self] in
+            if let self = self {
+                block(self.db)
+                self.preconditionNoUnsafeTransactionLeft(self.db)
+            } else {
+                block(nil)
+            }
+        }
+    }
+    
     /// Returns true if any only if the current dispatch queue is valid.
     var onValidQueue: Bool {
         SchedulingWatchdog.current?.allows(db) ?? false
@@ -248,10 +257,3 @@ final class SerializedDatabase {
             line: line)
     }
 }
-
-#if swift(>=5.6) && canImport(_Concurrency)
-// @unchecked because the wrapped `Database` itself is not Sendable.
-// It happens the job of SerializedDatabase is precisely to provide thread-safe
-// access to `Database`.
-extension SerializedDatabase: @unchecked Sendable { }
-#endif

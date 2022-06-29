@@ -77,7 +77,7 @@ try dbQueue.read { db in
 }
 ```
 
-See the [DatabaseMigrator reference](http://groue.github.io/GRDB.swift/docs/5.25/Structs/DatabaseMigrator.html) for more migrator methods.
+See the [DatabaseMigrator reference](http://groue.github.io/GRDB.swift/docs/5.13/Structs/DatabaseMigrator.html) for more migrator methods.
 
 
 ## The `eraseDatabaseOnSchemaChange` Option
@@ -260,15 +260,12 @@ while let violation = try violations.next() {
     // "FOREIGN KEY constraint violation - from player(teamId) to team(id),
     //  in [id:1 teamId:2 name:"O'Brien" score:1000]"
     try violation.failureDescription(db)
-    
-    // Turn violation into a DatabaseError
-    throw violation.databaseError(db)
 }
 ```
 
 ## Asynchronous Migrations
 
-`DatabaseMigrator` provides the following ways to migrate a database in an asynchronous way.
+`DatabaseMigrator` provides two ways to migrate a database in an asynchronous way.
 
 The `asyncMigrate(_:completion:)` method:
 

@@ -1,32 +1,23 @@
-extension ValueObservation {
-    /// Returns a ValueObservation which only publishes elements that don’t
-    /// match the previous element, as evaluated by a provided closure.
-    public func removeDuplicates(by predicate: @escaping (Reducer.Value, Reducer.Value) -> Bool)
-    -> ValueObservation<ValueReducers.RemoveDuplicates<Reducer>>
-    {
-        mapReducer { ValueReducers.RemoveDuplicates($0, predicate: predicate) }
-    }
-}
-
+// TODO: add removeDuplicates(by:)
 extension ValueObservation where Reducer.Value: Equatable {
     /// Returns a ValueObservation which filters out consecutive equal values.
     public func removeDuplicates()
     -> ValueObservation<ValueReducers.RemoveDuplicates<Reducer>>
     {
-        mapReducer { ValueReducers.RemoveDuplicates($0, predicate: ==) }
+        mapReducer { ValueReducers.RemoveDuplicates($0) }
     }
 }
 
 extension ValueReducers {
     /// See `ValueObservation.removeDuplicates()`
-    public struct RemoveDuplicates<Base: ValueReducer>: ValueReducer {
+    public struct RemoveDuplicates<Base: ValueReducer>: ValueReducer where Base.Value: Equatable {
         private var base: Base
         private var previousValue: Base.Value?
-        private var predicate: (Base.Value, Base.Value) -> Bool
+        /// :nodoc:
+        public var _isSelectedRegionDeterministic: Bool { base._isSelectedRegionDeterministic }
         
-        init(_ base: Base, predicate: @escaping (Base.Value, Base.Value) -> Bool) {
+        init(_ base: Base) {
             self.base = base
-            self.predicate = predicate
         }
         
         /// :nodoc:
@@ -39,7 +30,7 @@ extension ValueReducers {
             guard let value = base._value(fetched) else {
                 return nil
             }
-            if let previousValue = previousValue, predicate(previousValue, value) {
+            if let previousValue = previousValue, previousValue == value {
                 // Don't notify consecutive identical values
                 return nil
             }

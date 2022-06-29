@@ -112,7 +112,7 @@ extension DatabaseRegionObservation {
     /// on subscription.
     @available(OSX 10.15, iOS 13, tvOS 13, watchOS 6, *)
     public func publisher(in writer: DatabaseWriter) -> DatabasePublishers.DatabaseRegion {
-        DatabasePublishers.DatabaseRegion(self, in: writer)
+        return DatabasePublishers.DatabaseRegion(self, in: writer)
     }
 }
 #endif

@@ -185,11 +185,9 @@ public protocol _RowAdapter {
 /// GRDB ships with four concrete types that adopt the RowAdapter protocol:
 ///
 /// - `ColumnMapping`: renames row columns
-/// - `EmptyRowAdapter`: hides all columns
-/// - `RangeRowAdapter`: exposes a range of columns
-/// - `RenameColumnAdapter`: transforms column names with a function
-/// - `ScopeAdapter`: defines row scopes
 /// - `SuffixRowAdapter`: hides the first columns of a row
+/// - `RangeRowAdapter`: only exposes a range of columns
+/// - `ScopeAdapter`: defines row scopes
 ///
 /// To use a row adapter, provide it to any method that fetches:
 ///

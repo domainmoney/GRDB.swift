@@ -2,7 +2,6 @@ extension Database {
     
     // MARK: - Database Schema
     
-    // TODO: deprecate just before GRDB 6
     /// Creates a database table.
     ///
     ///     try db.create(table: "place") { t in
@@ -15,9 +14,6 @@ extension Database {
     ///
     /// See <https://www.sqlite.org/lang_createtable.html> and
     /// <https://www.sqlite.org/withoutrowid.html>
-    ///
-    /// - warning: This method is sunsetted. You should prefer
-    ///   `create(table:options:body:)` instead.
     ///
     /// - parameters:
     ///     - name: The table name.
@@ -28,50 +24,20 @@ extension Database {
     ///     - withoutRowID: If true, uses WITHOUT ROWID optimization.
     ///     - body: A closure that defines table columns and constraints.
     /// - throws: A DatabaseError whenever an SQLite error occurs.
-    @_disfavoredOverload
     public func create(
         table name: String,
         temporary: Bool = false,
         ifNotExists: Bool = false,
         withoutRowID: Bool = false,
-        body: (TableDefinition) throws -> Void)
-    throws
-    {
-        var options: TableOptions = []
-        if temporary { options.insert(.temporary) }
-        if ifNotExists { options.insert(.ifNotExists) }
-        if withoutRowID { options.insert(.withoutRowID) }
-        try create(table: name, options: options, body: body)
-    }
-    
-    /// Creates a database table.
-    ///
-    ///     try db.create(table: "place") { t in
-    ///         t.autoIncrementedPrimaryKey("id")
-    ///         t.column("title", .text)
-    ///         t.column("favorite", .boolean).notNull().default(false)
-    ///         t.column("longitude", .double).notNull()
-    ///         t.column("latitude", .double).notNull()
-    ///     }
-    ///
-    /// See <https://www.sqlite.org/lang_createtable.html> and
-    /// <https://www.sqlite.org/withoutrowid.html>
-    ///
-    /// - parameters:
-    ///     - name: The table name.
-    ///     - options: Table creation options.
-    ///     - body: A closure that defines table columns and constraints.
-    /// - throws: A DatabaseError whenever an SQLite error occurs.
-    public func create(
-        table name: String,
-        options: TableOptions = [],
-        body: (TableDefinition) throws -> Void)
+        body: (TableDefinition) -> Void)
     throws
     {
         let definition = TableDefinition(
             name: name,
-            options: options)
-        try body(definition)
+            temporary: temporary,
+            ifNotExists: ifNotExists,
+            withoutRowID: withoutRowID)
+        body(definition)
         let sql = try definition.sql(self)
         try execute(sql: sql)
     }
@@ -113,7 +79,6 @@ extension Database {
         try execute(sql: "DROP TABLE \(name.quotedDatabaseIdentifier)")
     }
     
-    // TODO: deprecate just before GRDB 6
     /// Creates an index.
     ///
     ///     try db.create(index: "playerByEmail", on: "player", columns: ["email"])
@@ -126,18 +91,14 @@ extension Database {
     ///
     /// See <https://www.sqlite.org/lang_createindex.html>
     ///
-    /// - warning: This method is sunsetted. You should prefer
-    ///   `create(index:on:columns:options:condition:)` instead.
-    ///
     /// - parameters:
     ///     - name: The index name.
     ///     - table: The name of the indexed table.
     ///     - columns: The indexed columns.
     ///     - unique: If true, creates a unique index.
-    ///     - ifNotExists: If true, no error is thrown if index already exists.
+    ///     - ifNotExists: If false, no error is thrown if index already exists.
     ///     - condition: If not nil, creates a partial index
     ///       (see <https://www.sqlite.org/partialindex.html>).
-    @_disfavoredOverload
     public func create(
         index name: String,
         on table: String,
@@ -147,44 +108,12 @@ extension Database {
         condition: SQLExpressible? = nil)
     throws
     {
-        var options: IndexOptions = []
-        if ifNotExists { options.insert(.ifNotExists) }
-        if unique { options.insert(.unique) }
-        try create(index: name, on: table, columns: columns, options: options, condition: condition)
-    }
-    
-    /// Creates an index.
-    ///
-    ///     try db.create(index: "playerByEmail", on: "player", columns: ["email"])
-    ///
-    /// SQLite can also index expressions (https://www.sqlite.org/expridx.html)
-    /// and use specific collations. To create such an index, use a raw SQL
-    /// query.
-    ///
-    ///     try db.execute(sql: "CREATE INDEX ...")
-    ///
-    /// See <https://www.sqlite.org/lang_createindex.html>
-    ///
-    /// - parameters:
-    ///     - name: The index name.
-    ///     - table: The name of the indexed table.
-    ///     - columns: The indexed columns.
-    ///     - options: Index creation options.
-    ///     - condition: If not nil, creates a partial index
-    ///       (see <https://www.sqlite.org/partialindex.html>).
-    public func create(
-        index name: String,
-        on table: String,
-        columns: [String],
-        options: IndexOptions = [],
-        condition: SQLExpressible? = nil)
-    throws
-    {
         let definition = IndexDefinition(
             name: name,
             table: table,
             columns: columns,
-            options: options,
+            unique: unique,
+            ifNotExists: ifNotExists,
             condition: condition?.sqlExpression)
         let sql = try definition.sql(self)
         try execute(sql: sql)
@@ -222,29 +151,6 @@ extension Database {
     public func reindex(collation: DatabaseCollation) throws {
         try reindex(collation: Database.CollationName(rawValue: collation.name))
     }
-}
-
-/// Table creation options
-public struct TableOptions: OptionSet {
-    /// :nodoc:
-    public let rawValue: Int
-    
-    /// :nodoc:
-    public init(rawValue: Int) { self.rawValue = rawValue }
-    
-    /// Only creates the table if it does not already exist.
-    public static let ifNotExists = TableOptions(rawValue: 1 << 0)
-    
-    /// Creates a temporary table.
-    public static let temporary = TableOptions(rawValue: 1 << 1)
-    
-    /// Creates a without rowid table. See <https://www.sqlite.org/withoutrowid.html>
-    public static let withoutRowID = TableOptions(rawValue: 1 << 2)
-    
-#if GRDBCUSTOMSQLITE
-    /// Creates a strict table. See <https://www.sqlite.org/stricttables.html>
-    public static let strict = TableOptions(rawValue: 1 << 3)
-#endif
 }
 
 /// The TableDefinition class lets you define table columns and constraints.
@@ -294,7 +200,9 @@ public final class TableDefinition {
     }
     
     private let name: String
-    private let options: TableOptions
+    private let temporary: Bool
+    private let ifNotExists: Bool
+    private let withoutRowID: Bool
     private var columns: [ColumnItem] = []
     private var primaryKeyConstraint: KeyConstraint?
     private var uniqueKeyConstraints: [KeyConstraint] = []
@@ -302,9 +210,11 @@ public final class TableDefinition {
     private var checkConstraints: [SQLExpression] = []
     private var literalConstraints: [SQL] = []
     
-    init(name: String, options: TableOptions) {
+    init(name: String, temporary: Bool, ifNotExists: Bool, withoutRowID: Bool) {
         self.name = name
-        self.options = options
+        self.temporary = temporary
+        self.ifNotExists = ifNotExists
+        self.withoutRowID = withoutRowID
     }
     
     /// Defines the auto-incremented primary key.
@@ -534,11 +444,11 @@ public final class TableDefinition {
         do {
             var chunks: [String] = []
             chunks.append("CREATE")
-            if options.contains(.temporary) {
+            if temporary {
                 chunks.append("TEMPORARY")
             }
             chunks.append("TABLE")
-            if options.contains(.ifNotExists) {
+            if ifNotExists {
                 chunks.append("IF NOT EXISTS")
             }
             chunks.append(name.quotedDatabaseIdentifier)
@@ -639,29 +549,14 @@ public final class TableDefinition {
                 chunks.append("(\(items.joined(separator: ", ")))")
             }
             
-            var tableOptions: [String] = []
-            
-#if GRDBCUSTOMSQLITE
-            if options.contains(.strict) {
-                tableOptions.append("STRICT")
+            if withoutRowID {
+                chunks.append("WITHOUT ROWID")
             }
-#endif
-            
-            if options.contains(.withoutRowID) {
-                tableOptions.append("WITHOUT ROWID")
-            }
-            
-            if !tableOptions.isEmpty {
-                chunks.append(tableOptions.joined(separator: ", "))
-            }
-            
             statements.append(chunks.joined(separator: " "))
         }
         
-        var indexOptions: IndexOptions = []
-        if options.contains(.ifNotExists) { indexOptions.insert(.ifNotExists) }
         let indexStatements = try columns
-            .compactMap { $0.columnDefinition?.indexDefinition(in: name, options: indexOptions) }
+            .compactMap { $0.columnDefinition?.indexDefinition(in: name, ifNotExists: ifNotExists) }
             .map { try $0.sql(db) }
         statements.append(contentsOf: indexStatements)
         return statements.joined(separator: "; ")
@@ -685,7 +580,6 @@ public final class TableAlteration {
         case add(ColumnDefinition)
         case addColumnLiteral(SQL)
         case rename(old: String, new: String)
-        case drop(String)
     }
     
     private var alterations: [TableAlterationKind] = []
@@ -751,19 +645,6 @@ public final class TableAlteration {
     public func rename(column name: String, to newName: String) {
         _rename(column: name, to: newName)
     }
-    
-    /// Drops a column from the table.
-    ///
-    ///     try db.alter(table: "player") { t in
-    ///         t.drop(column: "age")
-    ///     }
-    ///
-    /// See <https://www.sqlite.org/lang_altertable.html>
-    ///
-    /// - Parameter name: the column name to drop.
-    public func drop(column name: String) {
-        _drop(column: name)
-    }
     #else
     /// Renames a column in a table.
     ///
@@ -779,28 +660,10 @@ public final class TableAlteration {
     public func rename(column name: String, to newName: String) {
         _rename(column: name, to: newName)
     }
-    
-    /// Drops a column from the table.
-    ///
-    ///     try db.alter(table: "player") { t in
-    ///         t.drop(column: "age")
-    ///     }
-    ///
-    /// See <https://www.sqlite.org/lang_altertable.html>
-    ///
-    /// - Parameter name: the column name to drop.
-    @available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *)
-    public func drop(column name: String) {
-        _drop(column: name)
-    }
     #endif
     
     private func _rename(column name: String, to newName: String) {
         alterations.append(.rename(old: name, new: newName))
-    }
-    
-    private func _drop(column name: String) {
-        alterations.append(.drop(name))
     }
     
     fileprivate func sql(_ db: Database) throws -> String {
@@ -817,7 +680,7 @@ public final class TableAlteration {
                 let statement = chunks.joined(separator: " ")
                 statements.append(statement)
                 
-                if let indexDefinition = column.indexDefinition(in: name) {
+                if let indexDefinition = column.indexDefinition(in: name, ifNotExists: false) {
                     try statements.append(indexDefinition.sql(db))
                 }
                 
@@ -839,15 +702,6 @@ public final class TableAlteration {
                 chunks.append(oldName.quotedDatabaseIdentifier)
                 chunks.append("TO")
                 chunks.append(newName.quotedDatabaseIdentifier)
-                let statement = chunks.joined(separator: " ")
-                statements.append(statement)
-                
-            case let .drop(column):
-                var chunks: [String] = []
-                chunks.append("ALTER TABLE")
-                chunks.append(name.quotedDatabaseIdentifier)
-                chunks.append("DROP COLUMN")
-                chunks.append(column.quotedDatabaseIdentifier)
                 let statement = chunks.joined(separator: " ")
                 statements.append(statement)
             }
@@ -1289,7 +1143,7 @@ public final class ColumnDefinition {
         return chunks.joined(separator: " ")
     }
     
-    fileprivate func indexDefinition(in table: String, options: IndexOptions = []) -> IndexDefinition? {
+    fileprivate func indexDefinition(in table: String, ifNotExists: Bool) -> IndexDefinition? {
         switch index {
         case .none: return nil
         case .unique: return nil
@@ -1298,42 +1152,29 @@ public final class ColumnDefinition {
                 name: "\(table)_on_\(name)",
                 table: table,
                 columns: [name],
-                options: options,
+                unique: false,
+                ifNotExists: ifNotExists,
                 condition: nil)
         }
     }
-}
-
-/// Table creation options
-public struct IndexOptions: OptionSet {
-    /// :nodoc:
-    public let rawValue: Int
-    
-    /// :nodoc:
-    public init(rawValue: Int) { self.rawValue = rawValue }
-    
-    /// Only creates the index if it does not already exist.
-    public static let ifNotExists = IndexOptions(rawValue: 1 << 0)
-    
-    /// Creates a unique index.
-    public static let unique = IndexOptions(rawValue: 1 << 1)
 }
 
 private struct IndexDefinition {
     let name: String
     let table: String
     let columns: [String]
-    let options: IndexOptions
+    let unique: Bool
+    let ifNotExists: Bool
     let condition: SQLExpression?
     
     func sql(_ db: Database) throws -> String {
         var chunks: [String] = []
         chunks.append("CREATE")
-        if options.contains(.unique) {
+        if unique {
             chunks.append("UNIQUE")
         }
         chunks.append("INDEX")
-        if options.contains(.ifNotExists) {
+        if ifNotExists {
             chunks.append("IF NOT EXISTS")
         }
         chunks.append(name.quotedDatabaseIdentifier)

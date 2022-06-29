@@ -1,40 +1,23 @@
-import GRDBQuery
+import GRDB
 import SwiftUI
 
 @main
 struct GRDBCombineDemoApp: App {
     var body: some Scene {
         WindowGroup {
-            AppView().environment(\.appDatabase, .shared)
+            AppView().environment(\.appDatabase, AppDatabase.shared)
         }
     }
 }
 
-// MARK: - Give SwiftUI access to the database
-//
-// Define a new environment key that grants access to an AppDatabase.
-//
-// The technique is documented at
-// <https://developer.apple.com/documentation/swiftui/environmentkey>.
-
+// Let SwiftUI views access the database through the SwiftUI environment
 private struct AppDatabaseKey: EnvironmentKey {
-    static var defaultValue: AppDatabase { .empty() }
+    static let defaultValue: AppDatabase? = nil
 }
 
 extension EnvironmentValues {
-    var appDatabase: AppDatabase {
+    var appDatabase: AppDatabase? {
         get { self[AppDatabaseKey.self] }
         set { self[AppDatabaseKey.self] = newValue }
-    }
-}
-
-// In this demo app, views observe the database with the @Query property
-// wrapper, defined in the GRDBQuery package. Its documentation recommends to
-// define a dedicated initializer for `appDatabase` access, so we comply:
-
-extension Query where Request.DatabaseContext == AppDatabase {
-    /// Convenience initializer for requests that feed from `AppDatabase`.
-    init(_ request: Request) {
-        self.init(request, in: \.appDatabase)
     }
 }

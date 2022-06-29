@@ -14,9 +14,6 @@ public class ValueObservationScheduler {
         impl.schedule(action)
     }
     
-    /// Returns whether the initial value should be immediately notified.
-    ///
-    /// If true, then this method was called on the main thread.
     func immediateInitialValue() -> Bool {
         impl.immediateInitialValue()
     }
@@ -74,10 +71,6 @@ public class ValueObservationScheduler {
 
 private protocol ValueObservationSchedulerImpl {
     func schedule(_ action: @escaping () -> Void)
-    
-    /// Returns whether the initial value should be immediately notified.
-    ///
-    /// If true, then this method was called on the main thread.
     func immediateInitialValue() -> Bool
 }
 

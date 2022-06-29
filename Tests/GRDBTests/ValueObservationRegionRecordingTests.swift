@@ -23,7 +23,7 @@ class ValueObservationRegionRecordingTests: GRDBTestCase {
             }
             
             do {
-                var region = DatabaseRegion.fullTable("player")
+                var region = DatabaseRegion(table: "player")
                 db.recordingSelection(&region) { }
                 XCTAssertEqual(region.description, "player(*)")
             }
@@ -45,7 +45,7 @@ class ValueObservationRegionRecordingTests: GRDBTestCase {
             }
             
             do {
-                var region = DatabaseRegion.fullTable("player")
+                var region = DatabaseRegion(table: "player")
                 _ = try db.recordingSelection(&region) {
                     _ = try Row.fetchAll(db, sql: "SELECT * FROM team")
                 }
@@ -137,10 +137,10 @@ class ValueObservationRegionRecordingTests: GRDBTestCase {
         
         var regions: [DatabaseRegion] = []
         let observation = ValueObservation
-            .tracking { db -> Int in
+            .tracking({ db -> Int in
                 let table = try String.fetchOne(db, sql: "SELECT name FROM source")!
                 return try Int.fetchOne(db, sql: "SELECT IFNULL(SUM(value), 0) FROM \(table)")!
-            }
+            })
             .handleEvents(willTrackRegion: { regions.append($0) })
         
         let observer = observation.start(
@@ -188,10 +188,10 @@ class ValueObservationRegionRecordingTests: GRDBTestCase {
         
         var regions: [DatabaseRegion] = []
         let observation = ValueObservation
-            .tracking { db -> Int in
+            .tracking({ db -> Int in
                 let table = try String.fetchOne(db, sql: "SELECT name FROM source")!
                 return try Int.fetchOne(db, sql: "SELECT IFNULL(SUM(value), 0) FROM \(table)")!
-            }
+            })
             .handleEvents(willTrackRegion: { regions.append($0) })
         
         let observer = observation.start(

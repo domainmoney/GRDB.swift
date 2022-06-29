@@ -6,21 +6,18 @@ import Dispatch
 /// See DatabasePool.makeSnapshot()
 ///
 /// For more information, read about "snapshot isolation" at <https://sqlite.org/isolation.html>
-public final class DatabaseSnapshot: DatabaseReader {
-    private let serializedDatabase: SerializedDatabase
+public class DatabaseSnapshot: DatabaseReader {
+    private var serializedDatabase: SerializedDatabase
     
     /// The database configuration
     public var configuration: Configuration {
         serializedDatabase.configuration
     }
     
-#if SQLITE_ENABLE_SNAPSHOT
-    typealias Version = UnsafeMutablePointer<sqlite3_snapshot>
+    #if SQLITE_ENABLE_SNAPSHOT
     // Support for ValueObservation in DatabasePool
-    let version: Version?
-#else
-    typealias Version = Void
-#endif
+    private(set) var version: UnsafeMutablePointer<sqlite3_snapshot>?
+    #endif
     
     init(path: String, configuration: Configuration = Configuration(), defaultLabel: String, purpose: String) throws {
         var configuration = DatabasePool.readerConfiguration(configuration)
@@ -31,8 +28,8 @@ public final class DatabaseSnapshot: DatabaseReader {
             configuration: configuration,
             defaultLabel: defaultLabel,
             purpose: purpose)
-
-        let version: Version? = try serializedDatabase.sync { db in
+        
+        try serializedDatabase.sync { db in
             // Assert WAL mode
             let journalMode = try String.fetchOne(db, sql: "PRAGMA journal_mode")
             guard journalMode == "wal" else {
@@ -48,15 +45,9 @@ public final class DatabaseSnapshot: DatabaseReader {
             #if SQLITE_ENABLE_SNAPSHOT
             // We must expect an error: https://www.sqlite.org/c3ref/snapshot_get.html
             // > At least one transaction must be written to it first.
-            return try? db.takeVersionSnapshot()
-            #else
-            return nil
+            version = try? db.takeVersionSnapshot()
             #endif
         }
-        
-        #if SQLITE_ENABLE_SNAPSHOT
-        self.version = version
-        #endif
     }
     
     deinit {
@@ -95,12 +86,13 @@ extension DatabaseSnapshot {
         serializedDatabase.async { value(.success($0)) }
     }
     
-    public func unsafeRead<T>(_ value: (Database) throws -> T) rethrows -> T {
-        try serializedDatabase.sync(value)
+    /// :nodoc:
+    public func _weakAsyncRead(_ value: @escaping (Result<Database, Error>?) -> Void) {
+        serializedDatabase.weakAsync { value($0.map { .success($0) }) }
     }
     
-    public func asyncUnsafeRead(_ value: @escaping (Result<Database, Error>) -> Void) {
-        serializedDatabase.async { value(.success($0)) }
+    public func unsafeRead<T>(_ value: (Database) throws -> T) rethrows -> T {
+        try serializedDatabase.sync(value)
     }
     
     public func unsafeReentrantRead<T>(_ value: (Database) throws -> T) throws -> T {

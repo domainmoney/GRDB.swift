@@ -206,25 +206,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 JOIN "b" ON \(bCondition) \
                 JOIN "c" ON \(cCondition)
                 """)
-            
-            try assertEqualSQL(db, A.annotated(withOptional: ac), """
-                SELECT "a".*, "c".* \
-                FROM "a" \
-                LEFT JOIN "b" ON \(bCondition) \
-                LEFT JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.annotated(withRequired: ac), """
-                SELECT "a".*, "c".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.annotated(withRequired: ac.select(Column.rowID)), """
-                SELECT "a".*, "c"."rowid" \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
         }
         do {
             try assertEqualSQL(db, A.including(optional: ac).including(optional: ab), """
@@ -247,25 +228,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 """)
             try assertEqualSQL(db, A.including(optional: ac).joining(required: ab), """
                 SELECT "a".*, "c".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                LEFT JOIN "c" ON \(cCondition)
-                """)
-            
-            try assertEqualSQL(db, A.annotated(withOptional: ab).including(optional: ac), """
-                SELECT "a".*, "b".*, "c".* \
-                FROM "a" \
-                LEFT JOIN "b" ON \(bCondition) \
-                LEFT JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.including(optional: ac).annotated(withRequired: ab), """
-                SELECT "a".*, "b".*, "c".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                LEFT JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.including(optional: ac).annotated(withRequired: ab.select(Column.rowID)), """
-                SELECT "a".*, "b"."rowid", "c".* \
                 FROM "a" \
                 JOIN "b" ON \(bCondition) \
                 LEFT JOIN "c" ON \(cCondition)
@@ -296,25 +258,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 JOIN "b" ON \(bCondition) \
                 JOIN "c" ON \(cCondition)
                 """)
-            
-            try assertEqualSQL(db, A.annotated(withOptional: ab).including(required: ac), """
-                SELECT "a".*, "b".*, "c".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.including(required: ac).annotated(withRequired: ab), """
-                SELECT "a".*, "b".*, "c".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.including(required: ac).annotated(withRequired: ab.select(Column.rowID)), """
-                SELECT "a".*, "b"."rowid", "c".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
         }
         do {
             try assertEqualSQL(db, A.joining(optional: ac).including(optional: ab), """
@@ -341,25 +284,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 JOIN "b" ON \(bCondition) \
                 LEFT JOIN "c" ON \(cCondition)
                 """)
-            
-            try assertEqualSQL(db, A.annotated(withOptional: ab).joining(optional: ac), """
-                SELECT "a".*, "b".* \
-                FROM "a" \
-                LEFT JOIN "b" ON \(bCondition) \
-                LEFT JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.joining(optional: ac).annotated(withRequired: ab), """
-                SELECT "a".*, "b".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                LEFT JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.joining(optional: ac).annotated(withRequired: ab.select(Column.rowID)), """
-                SELECT "a".*, "b"."rowid" \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                LEFT JOIN "c" ON \(cCondition)
-                """)
         }
         do {
             try assertEqualSQL(db, A.joining(required: ac).including(optional: ab), """
@@ -382,25 +306,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 """)
             try assertEqualSQL(db, A.joining(required: ac).joining(required: ab), """
                 SELECT "a".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
-            
-            try assertEqualSQL(db, A.annotated(withOptional: ab).joining(required: ac), """
-                SELECT "a".*, "b".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.joining(required: ac).annotated(withRequired: ab), """
-                SELECT "a".*, "b".* \
-                FROM "a" \
-                JOIN "b" ON \(bCondition) \
-                JOIN "c" ON \(cCondition)
-                """)
-            try assertEqualSQL(db, A.joining(required: ac).annotated(withRequired: ab.select(Column.rowID)), """
-                SELECT "a".*, "b"."rowid" \
                 FROM "a" \
                 JOIN "b" ON \(bCondition) \
                 JOIN "c" ON \(cCondition)
@@ -936,43 +841,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                     JOIN "d" ON \(dCondition)
                     """)
             }
-            
-            for request in [
-                A.annotated(withOptional: dThroughC),
-                A.annotated(withOptional: dThroughB)]
-            {
-                try assertEqualSQL(db, request, """
-                    SELECT "a".*, "d".* \
-                    FROM "a" \
-                    LEFT JOIN "b" ON \(bCondition) \
-                    LEFT JOIN "c" ON \(cCondition) \
-                    LEFT JOIN "d" ON \(dCondition)
-                    """)
-            }
-            for request in [
-                A.annotated(withRequired: dThroughC),
-                A.annotated(withRequired: dThroughB)]
-            {
-                try assertEqualSQL(db, request, """
-                    SELECT "a".*, "d".* \
-                    FROM "a" \
-                    JOIN "b" ON \(bCondition) \
-                    JOIN "c" ON \(cCondition) \
-                    JOIN "d" ON \(dCondition)
-                    """)
-            }
-            for request in [
-                A.annotated(withRequired: dThroughC.select(Column.rowID)),
-                A.annotated(withRequired: dThroughB.select(Column.rowID))]
-            {
-                try assertEqualSQL(db, request, """
-                    SELECT "a".*, "d"."rowid" \
-                    FROM "a" \
-                    JOIN "b" ON \(bCondition) \
-                    JOIN "c" ON \(cCondition) \
-                    JOIN "d" ON \(dCondition)
-                    """)
-            }
         }
         
         do {
@@ -1019,43 +887,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 {
                     try assertEqualSQL(db, request, """
                         SELECT "a".*, "b".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                
-                for request in [
-                    A.including(optional: b).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).including(optional: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "b".* \
-                        FROM "a" \
-                        LEFT JOIN "b" ON \(bCondition) \
-                        LEFT JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(optional: b).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).including(optional: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "b".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(optional: b).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).including(optional: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid", "b".* \
                         FROM "a" \
                         JOIN "b" ON \(bCondition) \
                         JOIN "c" ON \(cCondition) \
@@ -1113,43 +944,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                         JOIN "d" ON \(dCondition)
                         """)
                 }
-                
-                for request in [
-                    A.including(required: b).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).including(required: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "b".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        LEFT JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(required: b).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).including(required: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "b".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(required: b).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).including(required: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid", "b".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
             }
             
             do {
@@ -1201,43 +995,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                         JOIN "d" ON \(dCondition)
                         """)
                 }
-                
-                for request in [
-                    A.joining(optional: b).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).joining(optional: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        LEFT JOIN "b" ON \(bCondition) \
-                        LEFT JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(optional: b).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).joining(optional: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(optional: b).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).joining(optional: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid" \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
             }
             
             do {
@@ -1283,43 +1040,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 {
                     try assertEqualSQL(db, request, """
                         SELECT "a".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                
-                for request in [
-                    A.joining(required: b).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).joining(required: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        LEFT JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(required: b).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).joining(required: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(required: b).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).joining(required: b)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid" \
                         FROM "a" \
                         JOIN "b" ON \(bCondition) \
                         JOIN "c" ON \(cCondition) \
@@ -1379,43 +1099,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                         JOIN "d" ON \(dCondition)
                         """)
                 }
-                
-                for request in [
-                    A.including(optional: c).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).including(optional: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "c".* \
-                        FROM "a" \
-                        LEFT JOIN "b" ON \(bCondition) \
-                        LEFT JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(optional: c).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).including(optional: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "c".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(optional: c).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).including(optional: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid", "c".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
             }
             
             do {
@@ -1461,43 +1144,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 {
                     try assertEqualSQL(db, request, """
                         SELECT "a".*, "c".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                
-                for request in [
-                    A.including(required: c).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).including(required: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "c".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(required: c).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).including(required: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".*, "c".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.including(required: c).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).including(required: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid", "c".* \
                         FROM "a" \
                         JOIN "b" ON \(bCondition) \
                         JOIN "c" ON \(cCondition) \
@@ -1555,43 +1201,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                         JOIN "d" ON \(dCondition)
                         """)
                 }
-                
-                for request in [
-                    A.joining(optional: c).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).joining(optional: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        LEFT JOIN "b" ON \(bCondition) \
-                        LEFT JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(optional: c).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).joining(optional: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(optional: c).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).joining(optional: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid" \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
             }
             
             do {
@@ -1637,43 +1246,6 @@ class AssociationHasOneThroughSQLTests: GRDBTestCase {
                 {
                     try assertEqualSQL(db, request, """
                         SELECT "a".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                
-                for request in [
-                    A.joining(required: c).annotated(withOptional: dThroughC),
-                    A.annotated(withOptional: dThroughB).joining(required: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        LEFT JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(required: c).annotated(withRequired: dThroughC),
-                    A.annotated(withRequired: dThroughB).joining(required: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d".* \
-                        FROM "a" \
-                        JOIN "b" ON \(bCondition) \
-                        JOIN "c" ON \(cCondition) \
-                        JOIN "d" ON \(dCondition)
-                        """)
-                }
-                for request in [
-                    A.joining(required: c).annotated(withRequired: dThroughC.select(Column.rowID)),
-                    A.annotated(withRequired: dThroughB.select(Column.rowID)).joining(required: c)]
-                {
-                    try assertEqualSQL(db, request, """
-                        SELECT "a".*, "d"."rowid" \
                         FROM "a" \
                         JOIN "b" ON \(bCondition) \
                         JOIN "c" ON \(cCondition) \

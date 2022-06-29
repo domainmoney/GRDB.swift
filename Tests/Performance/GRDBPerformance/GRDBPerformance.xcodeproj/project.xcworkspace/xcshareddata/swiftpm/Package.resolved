@@ -1,41 +1,43 @@
 {
-  "pins" : [
-    {
-      "identity" : "fmdb",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ccgus/fmdb.git",
-      "state" : {
-        "revision" : "61e51fde7f7aab6554f30ab061cc588b28a97d04",
-        "version" : "2.7.7"
+  "object": {
+    "pins": [
+      {
+        "package": "FMDB",
+        "repositoryURL": "https://github.com/ccgus/fmdb.git",
+        "state": {
+          "branch": null,
+          "revision": "61e51fde7f7aab6554f30ab061cc588b28a97d04",
+          "version": "2.7.7"
+        }
+      },
+      {
+        "package": "Realm",
+        "repositoryURL": "https://github.com/realm/realm-cocoa.git",
+        "state": {
+          "branch": null,
+          "revision": "328425bfc372ce77ec1f4f2701f61ececbb97d84",
+          "version": "10.19.0"
+        }
+      },
+      {
+        "package": "RealmDatabase",
+        "repositoryURL": "https://github.com/realm/realm-core",
+        "state": {
+          "branch": null,
+          "revision": "b170db6a47789ff5f2fbc3eeed0220b4b0a3f6b7",
+          "version": "11.6.0"
+        }
+      },
+      {
+        "package": "SQLite.swift",
+        "repositoryURL": "https://github.com/stephencelis/SQLite.swift.git",
+        "state": {
+          "branch": null,
+          "revision": "9af51e2edf491c0ea632e369a6566e09b65aa333",
+          "version": "0.13.0"
+        }
       }
-    },
-    {
-      "identity" : "realm-core",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/realm/realm-core",
-      "state" : {
-        "revision" : "d97eed3ae7dff2f2e2ffbda83fa8f3b8c445c6ba",
-        "version" : "11.17.0"
-      }
-    },
-    {
-      "identity" : "realm-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/realm/realm-swift.git",
-      "state" : {
-        "revision" : "7f123e48ec12926bb5080e449df360127ee0352d",
-        "version" : "10.26.0"
-      }
-    },
-    {
-      "identity" : "sqlite.swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/stephencelis/SQLite.swift.git",
-      "state" : {
-        "revision" : "4d543d811ee644fa4cc4bfa0be996b4dd6ba0f54",
-        "version" : "0.13.3"
-      }
-    }
-  ],
-  "version" : 2
+    ]
+  },
+  "version": 1
 }

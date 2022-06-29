@@ -4,7 +4,7 @@ import GRDB
 class ValueObservationMapTests: GRDBTestCase {
     func testMap() throws {
         let valueObservation = ValueObservation
-            .trackingConstantRegion(Table("t").fetchCount)
+            .trackingConstantRegion { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM t")! }
             .map { "\($0)" }
         
         try assertValueObservation(

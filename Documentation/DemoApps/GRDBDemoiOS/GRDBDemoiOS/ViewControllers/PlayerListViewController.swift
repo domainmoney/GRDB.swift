@@ -10,6 +10,7 @@ class PlayerListViewController: UITableViewController {
     
     @IBOutlet private weak var newPlayerButtonItem: UIBarButtonItem!
     private var dataSource: PlayerDataSource!
+    private var animatesPlayersChange = false // Don't animate first update
     private var playersCancellable: DatabaseCancellable?
     private var playerOrdering: PlayerOrdering = .byScore {
         didSet {
@@ -33,29 +34,18 @@ class PlayerListViewController: UITableViewController {
     
     private func configureToolbar() {
         toolbarItems = [
-            UIBarButtonItem(systemItem: .trash, primaryAction: UIAction { [unowned self] _ in
-                setEditing(false, animated: true)
-                try! AppDatabase.shared.deleteAllPlayers()
-            }),
-            UIBarButtonItem(systemItem: .flexibleSpace),
-            UIBarButtonItem(systemItem: .refresh, primaryAction: UIAction { [unowned self] _ in
-                setEditing(false, animated: true)
-                try! AppDatabase.shared.refreshPlayers()
-            }),
-            UIBarButtonItem(systemItem: .flexibleSpace),
-            UIBarButtonItem(image: UIImage(systemName: "tornado"), primaryAction: UIAction { [unowned self] _ in
-                setEditing(false, animated: true)
-                for _ in 0..<50 {
-                    DispatchQueue.global().async {
-                        try! AppDatabase.shared.refreshPlayers()
-                    }
-                }
-            }),
+            UIBarButtonItem(barButtonSystemItem: .trash, target: self, action: #selector(deletePlayers)),
+            UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+            UIBarButtonItem(barButtonSystemItem: .refresh, target: self, action: #selector(refresh)),
+            UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+            UIBarButtonItem(image: UIImage(systemName: "tornado"), style: .plain, target: self, action: #selector(stressTest)),
         ]
     }
     
     private func configureNavigationItem() {
-        navigationItem.backBarButtonItem = UIBarButtonItem(title: "Players")
+        navigationItem.backBarButtonItem = UIBarButtonItem(
+            title: "Players", style: .plain,
+            target: nil, action: nil)
         navigationItem.leftBarButtonItems = [editButtonItem, newPlayerButtonItem]
         configureOrderingBarButtonItem()
     }
@@ -65,17 +55,13 @@ class PlayerListViewController: UITableViewController {
         case .byScore:
             navigationItem.rightBarButtonItem = UIBarButtonItem(
                 title: "Score ▼",
-                primaryAction: UIAction { [unowned self] _ in
-                    setEditing(false, animated: true)
-                    playerOrdering = .byName
-                })
+                style: .plain,
+                target: self, action: #selector(sortByName))
         case .byName:
             navigationItem.rightBarButtonItem = UIBarButtonItem(
                 title: "Name ▲",
-                primaryAction: UIAction { [unowned self] _ in
-                    setEditing(false, animated: true)
-                    playerOrdering = .byScore
-                })
+                style: .plain,
+                target: self, action: #selector(sortByScore))
         }
     }
     
@@ -110,44 +96,34 @@ class PlayerListViewController: UITableViewController {
         snapshot.appendSections([0])
         snapshot.appendItems(players, toSection: 0)
         
-        // Remember selection
-        let selectedPlayerId = tableView.indexPathForSelectedRow.flatMap {
-            dataSource.itemIdentifier(for: $0)?.id
+        if animatesPlayersChange {
+            dataSource.apply(snapshot, animatingDifferences: true, completion: nil)
+        } else {
+            // Future updates will be animated
+            animatesPlayersChange = true
+            dataSource.apply(snapshot, animatingDifferences: false, completion: nil)
         }
-        
-        // Avoid a UIKit warning; don't animate when popping from edition
-        let animated = view.window != nil
-        
-        dataSource.apply(snapshot, animatingDifferences: animated, completion: {
-            // Restore selection
-            if let index = players.firstIndex(where: { $0.id == selectedPlayerId }) {
-                self.tableView.selectRow(at: IndexPath(row: index, section: 0), animated: false, scrollPosition: .none)
-            }
-        })
     }
     
     private func observePlayers() {
-        let request: QueryInterfaceRequest<Player>
         switch playerOrdering {
         case .byName:
-            request = Player.all().orderedByName()
-        case .byScore:
-            request = Player.all().orderedByScore()
-        }
-        
-        playersCancellable = ValueObservation
-            .tracking(request.fetchAll(_:))
-            .start(
-                in: AppDatabase.shared.databaseReader,
-                // Immediate scheduling feeds the data source right on subscription,
-                // and avoids an undesired animation when the application starts.
-                scheduling: .immediate,
+            playersCancellable = AppDatabase.shared.observePlayersOrderedByName(
                 onError: { error in fatalError("Unexpected error: \(error)") },
                 onChange: { [weak self] players in
                     guard let self = self else { return }
                     self.configureTitle(from: players)
                     self.configureDataSource(from: players)
                 })
+        case .byScore:
+            playersCancellable = AppDatabase.shared.observePlayersOrderedByScore(
+                onError: { error in fatalError("Unexpected error: \(error)") },
+                onChange: { [weak self] players in
+                    guard let self = self else { return }
+                    self.configureTitle(from: players)
+                    self.configureDataSource(from: players)
+                })
+        }
     }
 }
 
@@ -155,16 +131,26 @@ class PlayerListViewController: UITableViewController {
 // MARK: - Navigation
 
 extension PlayerListViewController {
-    @IBSegueAction func makePlayerEditionViewController(_ coder: NSCoder) -> PlayerEditionViewController? {
-        guard let indexPath = tableView.indexPathForSelectedRow,
-              let player = dataSource.itemIdentifier(for: indexPath)
-        else { return nil }
-        return PlayerEditionViewController(coder, mode: .edition, player: player)
-    }
     
-    @IBSegueAction func makePlayerCreationViewController(_ coder: NSCoder) -> PlayerEditionViewController? {
-        let player = Player(id: nil, name: "", score: 0)
-        return PlayerEditionViewController(coder, mode: .creation, player: player)
+    override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
+        if segue.identifier == "Edit" {
+            guard let controller = segue.destination as? PlayerEditionViewController,
+                  let indexPath = tableView.indexPathForSelectedRow,
+                  let player = dataSource.itemIdentifier(for: indexPath)
+            else { return }
+            controller.title = player.name
+            controller.player = player
+            controller.presentation = .push
+        }
+        else if segue.identifier == "New" {
+            guard let navigationController = segue.destination as? UINavigationController,
+                  let controller = navigationController.viewControllers.first as? PlayerEditionViewController
+            else { return }
+            setEditing(false, animated: true)
+            controller.title = "New Player"
+            controller.player = Player(id: nil, name: "", score: 0)
+            controller.presentation = .modal
+        }
     }
     
     @IBAction func cancelPlayerEdition(_ segue: UIStoryboardSegue) {
@@ -189,6 +175,40 @@ private class PlayerDataSource: UITableViewDiffableDataSource<Int, Player> {
         // Delete the player
         if let player = itemIdentifier(for: indexPath), let id = player.id {
             try! AppDatabase.shared.deletePlayers(ids: [id])
+        }
+    }
+}
+
+
+// MARK: - Actions
+
+extension PlayerListViewController {
+    @IBAction func sortByName() {
+        setEditing(false, animated: true)
+        playerOrdering = .byName
+    }
+    
+    @IBAction func sortByScore() {
+        setEditing(false, animated: true)
+        playerOrdering = .byScore
+    }
+    
+    @IBAction func deletePlayers() {
+        setEditing(false, animated: true)
+        try! AppDatabase.shared.deleteAllPlayers()
+    }
+    
+    @IBAction func refresh() {
+        setEditing(false, animated: true)
+        try! AppDatabase.shared.refreshPlayers()
+    }
+    
+    @IBAction func stressTest() {
+        setEditing(false, animated: true)
+        for _ in 0..<50 {
+            DispatchQueue.global().async {
+                try! AppDatabase.shared.refreshPlayers()
+            }
         }
     }
 }

@@ -26,7 +26,7 @@ class DatabaseMigratorTests : GRDBTestCase {
                 try! db.execute(sql: "CREATE TABLE t(a)")
                 expectation.fulfill()
             })
-            waitForExpectations(timeout: 5, handler: nil)
+            waitForExpectations(timeout: 1, handler: nil)
         }
         
         try Test(test)
@@ -141,7 +141,7 @@ class DatabaseMigratorTests : GRDBTestCase {
                     expectation.fulfill()
                 })
             })
-            waitForExpectations(timeout: 5, handler: nil)
+            waitForExpectations(timeout: 1, handler: nil)
         }
         
         try Test(test)
@@ -224,7 +224,7 @@ class DatabaseMigratorTests : GRDBTestCase {
                 })
             
             semaphore.signal()
-            waitForExpectations(timeout: 5, handler: nil)
+            waitForExpectations(timeout: 1, handler: nil)
             cancellable.cancel()
         }
         
@@ -252,7 +252,7 @@ class DatabaseMigratorTests : GRDBTestCase {
                 })
             
             semaphore.signal()
-            waitForExpectations(timeout: 5, handler: nil)
+            waitForExpectations(timeout: 1, handler: nil)
             cancellable.cancel()
         }
         
@@ -282,7 +282,7 @@ class DatabaseMigratorTests : GRDBTestCase {
                     expectation.fulfill()
                 })
             
-            waitForExpectations(timeout: 5, handler: nil)
+            waitForExpectations(timeout: 1, handler: nil)
             cancellable.cancel()
         }
         
@@ -313,7 +313,7 @@ class DatabaseMigratorTests : GRDBTestCase {
                     expectation.fulfill()
                 })
             
-            waitForExpectations(timeout: 5, handler: nil)
+            waitForExpectations(timeout: 1, handler: nil)
             cancellable.cancel()
         }
         
@@ -427,7 +427,7 @@ class DatabaseMigratorTests : GRDBTestCase {
                 
                 expectation.fulfill()
             })
-            waitForExpectations(timeout: 5, handler: nil)
+            waitForExpectations(timeout: 1, handler: nil)
         }
     }
     
@@ -669,22 +669,8 @@ class DatabaseMigratorTests : GRDBTestCase {
     }
     
     // Regression test for https://github.com/groue/GRDB.swift/issues/741
-    func testEraseDatabaseOnSchemaChangeDoesNotDeadLockOnTargetQueue() throws {
+    func testEraseDatabaseOnSchemaChangeDoesNotDeadLock() throws {
         dbConfiguration.targetQueue = DispatchQueue(label: "target")
-        let dbQueue = try makeDatabaseQueue()
-        
-        var migrator = DatabaseMigrator()
-        migrator.eraseDatabaseOnSchemaChange = true
-        migrator.registerMigration("1", migrate: { _ in })
-        try migrator.migrate(dbQueue)
-        
-        migrator.registerMigration("2", migrate: { _ in })
-        try migrator.migrate(dbQueue)
-    }
-    
-    // Regression test for https://github.com/groue/GRDB.swift/issues/741
-    func testEraseDatabaseOnSchemaChangeDoesNotDeadLockOnWriteTargetQueue() throws {
-        dbConfiguration.writeTargetQueue = DispatchQueue(label: "writerTarget")
         let dbQueue = try makeDatabaseQueue()
         
         var migrator = DatabaseMigrator()
@@ -733,7 +719,7 @@ class DatabaseMigratorTests : GRDBTestCase {
         }
         try XCTAssertEqual(dbQueue.read(migrator2.appliedMigrations), ["1"])
         
-        // ... unless database gets erased
+        // ... unless databaase gets erased
         migrator2.eraseDatabaseOnSchemaChange = true
         try migrator2.migrate(dbQueue)
         try XCTAssertEqual(dbQueue.read(migrator2.appliedMigrations), ["1", "2"])
@@ -782,7 +768,7 @@ class DatabaseMigratorTests : GRDBTestCase {
         }
         try XCTAssertEqual(dbQueue.read(migrator2.appliedMigrations), ["1"])
         
-        // ... unless database gets erased
+        // ... unless databaase gets erased
         migrator2.eraseDatabaseOnSchemaChange = true
         try migrator2.migrate(dbQueue)
         try XCTAssertEqual(dbQueue.read(migrator2.appliedMigrations), ["1", "2"])
