@@ -1,5 +1,5 @@
-import Foundation
 import Dispatch
+import Foundation
 #if os(iOS)
 import UIKit
 #endif
@@ -57,14 +57,17 @@ public final class DatabasePool: DatabaseWriter {
         readerConfiguration.allowsUnsafeTransactions = false
         
         var readerCount = 0
-        readerPool = Pool(maximumCount: configuration.maximumReaderCount, makeElement: {
-            readerCount += 1 // protected by Pool (TODO: document this protection behavior)
-            return try SerializedDatabase(
-                path: path,
-                configuration: readerConfiguration,
-                defaultLabel: "GRDB.DatabasePool",
-                purpose: "reader.\(readerCount)")
-        })
+        readerPool = Pool(
+            maximumCount: configuration.maximumReaderCount,
+            qos: configuration.readQoS,
+            makeElement: {
+                readerCount += 1 // protected by Pool (TODO: document this protection behavior)
+                return try SerializedDatabase(
+                    path: path,
+                    configuration: readerConfiguration,
+                    defaultLabel: "GRDB.DatabasePool",
+                    purpose: "reader.\(readerCount)")
+            })
         
         // Activate WAL Mode unless readonly
         if !configuration.readonly {
@@ -160,6 +163,11 @@ public final class DatabasePool: DatabaseWriter {
     }
 }
 
+#if swift(>=5.6) && canImport(_Concurrency)
+// @unchecked because of databaseSnapshotCount and readerPool
+extension DatabasePool: @unchecked Sendable { }
+#endif
+
 extension DatabasePool {
     
     // MARK: - Memory management
@@ -183,15 +191,20 @@ extension DatabasePool {
     /// as much memory as possible.
     private func setupMemoryManagement() {
         let center = NotificationCenter.default
+        
+        // Use raw notification names because of
+        // FB9801372 (UIApplication.didReceiveMemoryWarningNotification should not be declared @MainActor)
+        // TODO: Reuse UIApplication.didReceiveMemoryWarningNotification when possible.
+        // TODO: Reuse UIApplication.didEnterBackgroundNotification when possible.
         center.addObserver(
             self,
             selector: #selector(DatabasePool.applicationDidReceiveMemoryWarning(_:)),
-            name: UIApplication.didReceiveMemoryWarningNotification,
+            name: NSNotification.Name(rawValue: "UIApplicationDidReceiveMemoryWarningNotification"),
             object: nil)
         center.addObserver(
             self,
             selector: #selector(DatabasePool.applicationDidEnterBackground(_:)),
-            name: UIApplication.didEnterBackgroundNotification,
+            name: NSNotification.Name(rawValue: "UIApplicationDidEnterBackgroundNotification"),
             object: nil)
     }
     
@@ -303,6 +316,7 @@ extension DatabasePool: DatabaseReader {
     
     // MARK: - Reading from Database
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func read<T>(_ value: (Database) throws -> T) throws -> T {
         GRDBPrecondition(currentReader == nil, "Database methods are not reentrant.")
         guard let readerPool = readerPool else {
@@ -310,104 +324,45 @@ extension DatabasePool: DatabaseReader {
         }
         return try readerPool.get { reader in
             try reader.sync { db in
-                var result: T? = nil
-                // The block isolation comes from the DEFERRED transaction.
-                // See DatabasePoolTests.testReadMethodIsolationOfBlock().
-                try db.inTransaction(.deferred) {
+                try db.isolated {
                     try db.clearSchemaCacheIfNeeded()
-                    result = try value(db)
-                    return .commit
+                    return try value(db)
                 }
-                return result!
             }
         }
     }
     
     public func asyncRead(_ value: @escaping (Result<Database, Error>) -> Void) {
-        // First async jump in order to grab a reader connection.
-        // Honor configuration dispatching (qos/targetQueue).
-        let label = configuration.identifier(
-            defaultLabel: "GRDB.DatabasePool",
-            purpose: "asyncRead")
-        configuration
-            .makeDispatchQueue(label: label)
-            .async {
-                do {
-                    guard let readerPool = self.readerPool else {
-                        throw DatabaseError.connectionIsClosed()
+        guard let readerPool = self.readerPool else {
+            value(.failure(DatabaseError(resultCode: .SQLITE_MISUSE, message: "Connection is closed")))
+            return
+        }
+        
+        readerPool.asyncGet { result in
+            do {
+                let (reader, releaseReader) = try result.get()
+                // Second async jump because that's how `Pool.async` has to be used.
+                reader.async { db in
+                    defer {
+                        try? db.commit() // Ignore commit error
+                        releaseReader()
                     }
-                    let (reader, releaseReader) = try readerPool.get()
-                    
-                    // Second async jump because sync could deadlock if
-                    // configuration has a serial targetQueue.
-                    reader.async { db in
-                        defer {
-                            try? db.commit() // Ignore commit error
-                            releaseReader()
-                        }
-                        do {
-                            // The block isolation comes from the DEFERRED transaction.
-                            try db.beginTransaction(.deferred)
-                            try db.clearSchemaCacheIfNeeded()
-                            value(.success(db))
-                        } catch {
-                            value(.failure(error))
-                        }
+                    do {
+                        // The block isolation comes from the DEFERRED transaction.
+                        try db.beginTransaction(.deferred)
+                        try db.clearSchemaCacheIfNeeded()
+                        value(.success(db))
+                    } catch {
+                        value(.failure(error))
                     }
-                } catch {
-                    value(.failure(error))
                 }
+            } catch {
+                value(.failure(error))
             }
+        }
     }
     
-    /// :nodoc:
-    public func _weakAsyncRead(_ value: @escaping (Result<Database, Error>?) -> Void) {
-        // First async jump in order to grab a reader connection.
-        // Honor configuration dispatching (qos/targetQueue).
-        let label = configuration.identifier(
-            defaultLabel: "GRDB.DatabasePool",
-            purpose: "asyncRead")
-        configuration
-            .makeDispatchQueue(label: label)
-            .async { [weak self] in
-                guard let self = self else {
-                    value(nil)
-                    return
-                }
-                
-                do {
-                    guard let readerPool = self.readerPool else {
-                        throw DatabaseError.connectionIsClosed()
-                    }
-                    let (reader, releaseReader) = try readerPool.get()
-                    
-                    // Second async jump because sync could deadlock if
-                    // configuration has a serial targetQueue.
-                    reader.weakAsync { db in
-                        guard let db = db else {
-                            value(nil)
-                            return
-                        }
-                        
-                        defer {
-                            try? db.commit() // Ignore commit error
-                            releaseReader()
-                        }
-                        do {
-                            // The block isolation comes from the DEFERRED transaction.
-                            try db.beginTransaction(.deferred)
-                            try db.clearSchemaCacheIfNeeded()
-                            value(.success(db))
-                        } catch {
-                            value(.failure(error))
-                        }
-                    }
-                } catch {
-                    value(.failure(error))
-                }
-            }
-    }
-    
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func unsafeRead<T>(_ value: (Database) throws -> T) throws -> T {
         GRDBPrecondition(currentReader == nil, "Database methods are not reentrant.")
         guard let readerPool = readerPool else {
@@ -417,6 +372,34 @@ extension DatabasePool: DatabaseReader {
             try reader.sync { db in
                 try db.clearSchemaCacheIfNeeded()
                 return try value(db)
+            }
+        }
+    }
+    
+    public func asyncUnsafeRead(_ value: @escaping (Result<Database, Error>) -> Void) {
+        guard let readerPool = self.readerPool else {
+            value(.failure(DatabaseError(resultCode: .SQLITE_MISUSE, message: "Connection is closed")))
+            return
+        }
+        
+        readerPool.asyncGet { result in
+            do {
+                let (reader, releaseReader) = try result.get()
+                // Second async jump because that's how `Pool.async` has to be used.
+                reader.async { db in
+                    defer {
+                        releaseReader()
+                    }
+                    do {
+                        // The block isolation comes from the DEFERRED transaction.
+                        try db.clearSchemaCacheIfNeeded()
+                        value(.success(db))
+                    } catch {
+                        value(.failure(error))
+                    }
+                }
+            } catch {
+                value(.failure(error))
             }
         }
     }
@@ -633,10 +616,12 @@ extension DatabasePool: DatabaseReader {
     
     // MARK: - Writing in Database
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func writeWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T {
         try writer.sync(updates)
     }
     
+    @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func barrierWriteWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T {
         // TODO: throw instead of crashing when the database is closed
         try readerPool!.barrier {
@@ -704,11 +689,6 @@ extension DatabasePool: DatabaseReader {
         writer.async(updates)
     }
     
-    /// :nodoc:
-    public func _weakAsyncWriteWithoutTransaction(_ updates: @escaping (Database?) -> Void) {
-        writer.weakAsync(updates)
-    }
-    
     // MARK: - Database Observation
     
     /// :nodoc:
@@ -719,25 +699,26 @@ extension DatabasePool: DatabaseReader {
     -> DatabaseCancellable
     {
         if configuration.readonly {
+            // The easy case: the database does not change
             return _addReadOnly(
                 observation: observation,
                 scheduling: scheduler,
                 onChange: onChange)
-        }
-        
-        if observation.requiresWriteAccess {
-            let observer = _addWriteOnly(
+            
+        } else if observation.requiresWriteAccess {
+            // Observe from the writer database connection.
+            return _addWriteOnly(
                 observation: observation,
                 scheduling: scheduler,
                 onChange: onChange)
-            return AnyDatabaseCancellable(cancel: observer.cancel)
+            
+        } else {
+            // DatabasePool can perform concurrent observation
+            return _addConcurrent(
+                observation: observation,
+                scheduling: scheduler,
+                onChange: onChange)
         }
-        
-        let observer = _addConcurrent(
-            observation: observation,
-            scheduling: scheduler,
-            onChange: onChange)
-        return AnyDatabaseCancellable(cancel: observer.cancel)
     }
     
     /// A concurrent observation fetches the initial value without waiting for
@@ -746,178 +727,19 @@ extension DatabasePool: DatabaseReader {
         observation: ValueObservation<Reducer>,
         scheduling scheduler: ValueObservationScheduler,
         onChange: @escaping (Reducer.Value) -> Void)
-    -> ValueObserver<Reducer> // For testability
+    -> DatabaseCancellable
     {
         assert(!configuration.readonly, "Use _addReadOnly(observation:) instead")
         assert(!observation.requiresWriteAccess, "Use _addWriteOnly(observation:) instead")
-        
-        let reduceQueueLabel = configuration.identifier(
-            defaultLabel: "GRDB",
-            purpose: "ValueObservation")
-        let observer = ValueObserver(
-            observation: observation,
-            writer: self,
+        let observer = ValueConcurrentObserver(
+            dbPool: self,
             scheduler: scheduler,
-            reduceQueue: configuration.makeDispatchQueue(label: reduceQueueLabel),
+            trackingMode: observation.trackingMode,
+            reducer: observation.makeReducer(),
+            events: observation.events,
             onChange: onChange)
-        
-        // Starting a concurrent observation means that we'll fetch the initial
-        // value right away, without waiting for an access to the writer queue,
-        // and the opportunity to install a transaction observer.
-        //
-        // This is how DatabasePool can start an observation and promptly notify
-        // an initial value, even when there is a long-running write transaction
-        // in the background.
-        //
-        // We thus have to deal with the fact that between this initial fetch,
-        // and the beginning of transaction tracking, any number of untracked
-        // writes may occur.
-        //
-        // We must notify changes that happen during this untracked window. But
-        // how do we spot them, since we're not tracking database changes yet?
-        //
-        // A safe solution is to always perform a second fetch. We may fetch the
-        // same initial value, if no change did happen. But we don't miss
-        // possible changes.
-        //
-        // We can avoid this second fetch when SQLite is compiled with the
-        // SQLITE_ENABLE_SNAPSHOT option:
-        //
-        // 1. Perform the initial fetch in a DatabaseSnapshot. Its long running
-        // transaction acquires a lock that will prevent checkpointing until we
-        // get a writer access, so that we can reliably compare database
-        // versions with `sqlite3_snapshot`:
-        // https://www.sqlite.org/c3ref/snapshot.html.
-        //
-        // 2. Get a writer access, and compare the versions of the initial
-        // snapshot, and the current state of the database: if versions are
-        // identical, we can avoid the second fetch. If they are not, we perform
-        // the second fetch, even if the actual changes are unrelated to the
-        // tracked database region (we have no way to know).
-        //
-        // 3. Install the transaction observer.
-        
-        #if SQLITE_ENABLE_SNAPSHOT
-        if scheduler.immediateInitialValue() {
-            do {
-                let initialSnapshot = try makeSnapshot()
-                let initialValue = try initialSnapshot.read(observer.fetchInitialValue)
-                onChange(initialValue)
-                add(observer: observer, from: initialSnapshot)
-            } catch {
-                observer.complete()
-                observation.events.didFail?(error)
-            }
-        } else {
-            let label = configuration.identifier(
-                defaultLabel: "GRDB.DatabasePool",
-                purpose: "ValueObservation")
-            configuration
-                .makeDispatchQueue(label: label)
-                .async { [weak self] in
-                    guard let self = self else { return }
-                    if observer.isCompleted { return }
-                    
-                    do {
-                        let initialSnapshot = try self.makeSnapshot()
-                        let initialValue = try initialSnapshot.read(observer.fetchInitialValue)
-                        observer.notifyChange(initialValue)
-                        self.add(observer: observer, from: initialSnapshot)
-                    } catch {
-                        observer.notifyErrorAndComplete(error)
-                    }
-                }
-        }
-        #else
-        if scheduler.immediateInitialValue() {
-            do {
-                let initialValue = try read(observer.fetchInitialValue)
-                onChange(initialValue)
-                addObserver(observer: observer)
-            } catch {
-                observer.complete()
-                observation.events.didFail?(error)
-            }
-        } else {
-            _weakAsyncRead { [weak self] dbResult in
-                guard let self = self, let dbResult = dbResult else { return }
-                if observer.isCompleted { return }
-                
-                do {
-                    let initialValue = try observer.fetchInitialValue(dbResult.get())
-                    observer.notifyChange(initialValue)
-                    self.addObserver(observer: observer)
-                } catch {
-                    observer.notifyErrorAndComplete(error)
-                }
-            }
-        }
-        #endif
-        
-        return observer
+        return observer.start()
     }
-    
-    #if SQLITE_ENABLE_SNAPSHOT
-    // Support for _addConcurrent(observation:)
-    private func add<Reducer: ValueReducer>(
-        observer: ValueObserver<Reducer>,
-        from initialSnapshot: DatabaseSnapshot)
-    {
-        _weakAsyncWriteWithoutTransaction { db in
-            guard let db = db else { return }
-            if observer.isCompleted { return }
-            
-            do {
-                // Transaction is needed for version snapshotting
-                try db.inTransaction(.deferred) {
-                    // Keep DatabaseSnaphot alive until we have compared
-                    // database versions. It prevents database checkpointing,
-                    // and keeps versions (`sqlite3_snapshot`) valid
-                    // and comparable.
-                    let fetchNeeded: Bool = try withExtendedLifetime(initialSnapshot) {
-                        guard let initialVersion = initialSnapshot.version else {
-                            return true
-                        }
-                        return try db.wasChanged(since: initialVersion)
-                    }
-                    
-                    if fetchNeeded {
-                        observer.events.databaseDidChange?()
-                        if let value = try observer.fetchValue(db) {
-                            observer.notifyChange(value)
-                        }
-                    }
-                    return .commit
-                }
-                
-                // Now we can start observation
-                db.add(transactionObserver: observer, extent: .observerLifetime)
-            } catch {
-                observer.notifyErrorAndComplete(error)
-            }
-        }
-    }
-    #else
-    // Support for _addConcurrent(observation:)
-    private func addObserver<Reducer: ValueReducer>(observer: ValueObserver<Reducer>) {
-        _weakAsyncWriteWithoutTransaction { db in
-            guard let db = db else { return }
-            if observer.isCompleted { return }
-            
-            do {
-                observer.events.databaseDidChange?()
-                if let value = try observer.fetchValue(db) {
-                    observer.notifyChange(value)
-                }
-                
-                // Now we can start observation
-                db.add(transactionObserver: observer, extent: .observerLifetime)
-            } catch {
-                observer.notifyErrorAndComplete(error)
-            }
-        }
-    }
-    #endif
 }
 
 extension DatabasePool {

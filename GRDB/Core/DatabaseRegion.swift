@@ -55,6 +55,14 @@ public struct DatabaseRegion: CustomStringConvertible, Equatable {
     /// from all tables.
     public static let fullDatabase = DatabaseRegion(tableRegions: nil)
     
+    // TODO: rename to init(table:) when this initializer is no longer public
+    /// The region that covers a full database table: all columns and all rows
+    /// from this table.
+    static func fullTable(_ table: String) -> DatabaseRegion {
+        let table = CaseInsensitiveIdentifier(rawValue: table)
+        return DatabaseRegion(tableRegions: [table: TableRegion(columns: nil, rowIds: nil)])
+    }
+    
     /// Creates an empty database region.
     public init() {
         self.init(tableRegions: [:])
@@ -63,9 +71,9 @@ public struct DatabaseRegion: CustomStringConvertible, Equatable {
     /// Creates a region that spans all rows and columns of a database table.
     ///
     /// - parameter table: A table name.
+    @available(*, deprecated, message: "In order to specify a table region, prefer `Table(tableName)`")
     public init(table: String) {
-        let table = CaseInsensitiveIdentifier(rawValue: table)
-        self.init(tableRegions: [table: TableRegion(columns: nil, rowIds: nil)])
+        self = .fullTable(table)
     }
     
     /// Full columns in a table: (some columns in a table) × (all rows)
@@ -261,7 +269,7 @@ extension DatabaseRegion {
         }
         return tableRegions
             .sorted(by: { (l, r) in l.key.rawValue < r.key.rawValue })
-            .map({ (table, tableRegion) in
+            .map { (table, tableRegion) in
                 var desc = table.rawValue
                 if let columns = tableRegion.columns {
                     desc += "(" + columns.map(\.rawValue).sorted().joined(separator: ",") + ")"
@@ -272,7 +280,7 @@ extension DatabaseRegion {
                     desc += "[" + rowIds.sorted().map { "\($0)" }.joined(separator: ",") + "]"
                 }
                 return desc
-            })
+            }
             .joined(separator: ",")
     }
 }

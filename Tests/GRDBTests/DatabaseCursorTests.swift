@@ -29,6 +29,52 @@ class DatabaseCursorTests: GRDBTestCase {
     }
 
     // TODO: this test should be duplicated for all cursor types
+    func testNextFollowedByForEach() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            do {
+                let cursor = try Int.fetchCursor(db, sql: "SELECT 1")
+                XCTAssertEqual(try cursor.next()!,  1)
+                try cursor.forEach { _ in
+                    XCTFail("Cursor iteration should have ended")
+                }
+                XCTAssert(try cursor.next() == nil) // end
+            }
+            do {
+                let cursor = try Int.fetchCursor(db, sql: "SELECT 1 UNION SELECT 2")
+                XCTAssertEqual(try cursor.next()!,  1)
+                try cursor.forEach { i in
+                    XCTAssertEqual(i,  2)
+                }
+                XCTAssert(try cursor.next() == nil) // end
+            }
+            do {
+                let cursor = try Int.fetchCursor(db, sql: "SELECT 1 UNION SELECT 2 UNION SELECT 3")
+                XCTAssertEqual(try cursor.next()!,  1)
+                try XCTAssertEqual(Array(cursor), [2, 3])
+                XCTAssert(try cursor.next() == nil) // end
+            }
+            do {
+                struct Break: Error { }
+                let cursor = try Int.fetchCursor(db, sql: "SELECT 1 UNION SELECT 2 UNION SELECT 3")
+                try? cursor.forEach { i in
+                    XCTAssertEqual(i,  1)
+                    throw Break()
+                }
+                try? cursor.forEach { i in
+                    XCTAssertEqual(i,  2)
+                    throw Break()
+                }
+                try? cursor.forEach { i in
+                    XCTAssertEqual(i,  3)
+                    throw Break()
+                }
+                XCTAssert(try cursor.next() == nil) // end
+            }
+        }
+    }
+    
+    // TODO: this test should be duplicated for all cursor types
     func testStepError() throws {
         let dbQueue = try makeDatabaseQueue()
         let customError = NSError(domain: "Custom", code: 0xDEAD)
@@ -165,5 +211,122 @@ class DatabaseCursorTests: GRDBTestCase {
 //            sqlite3_finalize(statement)
 //            sqlite3_close_v2(connection)
 //        }
+    }
+    
+    // For profiling tests
+    let profilingSQL = """
+        WITH RECURSIVE
+          cnt(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM cnt WHERE x<10000000)
+        SELECT x FROM cnt
+        """
+    
+    // Profiling test
+    func testRowCursorStep() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: RowCursor = try Row.fetchCursor(db, sql: profilingSQL)
+            while let _ = try cursor.next() { }
+        }
+    }
+    
+    // Profiling test
+    func testRowCursorForEach() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: RowCursor = try Row.fetchCursor(db, sql: profilingSQL)
+            try cursor.forEach { _ in }
+        }
+    }
+    
+    // Profiling test
+    func testDatabaseValueCursorStep() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: DatabaseValueCursor<Int> = try Int.fetchCursor(db, sql: profilingSQL)
+            while let _ = try cursor.next() { }
+        }
+    }
+    
+    // Profiling test
+    func testDatabaseValueCursorForEach() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: DatabaseValueCursor<Int> = try Int.fetchCursor(db, sql: profilingSQL)
+            try cursor.forEach { _ in }
+        }
+    }
+    
+    // Profiling test
+    func testNullableDatabaseValueCursorStep() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: NullableDatabaseValueCursor<Int> = try Optional<Int>.fetchCursor(db, sql: profilingSQL)
+            while let _ = try cursor.next() { }
+        }
+    }
+    
+    // Profiling test
+    func testNullableDatabaseValueCursorForEach() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: NullableDatabaseValueCursor<Int> = try Optional<Int>.fetchCursor(db, sql: profilingSQL)
+            try cursor.forEach { _ in }
+        }
+    }
+    
+    // Profiling test
+    func testFastDatabaseValueCursorStep() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: FastDatabaseValueCursor<Int> = try Int.fetchCursor(db, sql: profilingSQL)
+            while let _ = try cursor.next() { }
+        }
+    }
+    
+    // Profiling test
+    func testFastDatabaseValueCursorForEach() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: FastDatabaseValueCursor<Int> = try Int.fetchCursor(db, sql: profilingSQL)
+            try cursor.forEach { _ in }
+        }
+    }
+    
+    // Profiling test
+    func testFastNullableDatabaseValueCursorStep() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: FastNullableDatabaseValueCursor<Int> = try Optional<Int>.fetchCursor(db, sql: profilingSQL)
+            while let _ = try cursor.next() { }
+        }
+    }
+    
+    // Profiling test
+    func testFastNullableDatabaseValueCursorForEach() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: FastNullableDatabaseValueCursor<Int> = try Optional<Int>.fetchCursor(db, sql: profilingSQL)
+            try cursor.forEach { _ in }
+        }
+    }
+    
+    // Profiling test
+    func testRecordCursorStep() throws {
+        struct S: FetchableRecord { init(row: Row) { } }
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: RecordCursor<S> = try S.fetchCursor(db, sql: profilingSQL)
+            while let _ = try cursor.next() { }
+        }
+    }
+    
+    // Profiling test
+    func testRecordCursorForEach() throws {
+        struct S: FetchableRecord { init(row: Row) { } }
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            let cursor: RecordCursor<S> = try S.fetchCursor(db, sql: profilingSQL)
+            try cursor.forEach { _ in }
+        }
     }
 }

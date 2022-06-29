@@ -186,8 +186,8 @@ class ValueObservationPrintTests: GRDBTestCase {
                 XCTAssertEqual(logger.strings.prefix(7), [
                     "start",
                     "fetch",
-                    "value: nil",
                     "tracked region: \(expectedRegion)",
+                    "value: nil",
                     "database did change",
                     "fetch",
                     "value: Optional(1)"])
@@ -228,8 +228,8 @@ class ValueObservationPrintTests: GRDBTestCase {
                 XCTAssertEqual(logger.strings.prefix(7), [
                     "start",
                     "fetch",
-                    "value: nil",
                     "tracked region: \(expectedRegion)",
+                    "value: nil",
                     "database did change",
                     "fetch",
                     "value: Optional(1)"])
@@ -325,8 +325,8 @@ class ValueObservationPrintTests: GRDBTestCase {
                 XCTAssertEqual(logger.strings, [
                     "start",
                     "fetch",
-                    "value: nil",
                     "tracked region: \(expectedRegion)",
+                    "value: nil",
                     "database did change",
                     "fetch",
                     "failure: SQLite error 1: no such table: player - while executing `SELECT MAX(id) FROM player`"])
@@ -368,8 +368,8 @@ class ValueObservationPrintTests: GRDBTestCase {
                 XCTAssertEqual(logger.strings, [
                     "start",
                     "fetch",
-                    "value: nil",
                     "tracked region: \(expectedRegion)",
+                    "value: nil",
                     "database did change",
                     "fetch",
                     "failure: SQLite error 1: no such table: player - while executing `SELECT MAX(id) FROM player`"])
@@ -394,7 +394,7 @@ class ValueObservationPrintTests: GRDBTestCase {
         // transaction observer, some write did happen.
         var needsChange = true
         let observation = ValueObservation
-            .trackingConstantRegion({ db -> Int? in
+            .trackingConstantRegion { db -> Int? in
                 if needsChange {
                     needsChange = false
                     try dbPool.write { db in
@@ -405,7 +405,7 @@ class ValueObservationPrintTests: GRDBTestCase {
                     }
                 }
                 return try Int.fetchOne(db, sql: "SELECT MAX(id) FROM player")
-            })
+            }
             .print(to: logger)
         
         let expectedRegion = try region(sql: "SELECT MAX(id) FROM player", in: dbPool)
@@ -422,9 +422,9 @@ class ValueObservationPrintTests: GRDBTestCase {
                 "start",
                 "fetch",
                 "value: nil",
-                "tracked region: \(expectedRegion)",
                 "database did change",
                 "fetch",
+                "tracked region: \(expectedRegion)",
                 "value: nil"])
         }
     }
@@ -441,7 +441,7 @@ class ValueObservationPrintTests: GRDBTestCase {
         // transaction observer, some write did happen.
         var needsChange = true
         let observation = ValueObservation
-            .trackingConstantRegion({ db -> Int? in
+            .trackingConstantRegion { db -> Int? in
                 if needsChange {
                     needsChange = false
                     try dbPool.write { db in
@@ -452,7 +452,7 @@ class ValueObservationPrintTests: GRDBTestCase {
                     }
                 }
                 return try Int.fetchOne(db, sql: "SELECT MAX(id) FROM player")
-            })
+            }
             .print(to: logger)
         
         let expectedRegion = try region(sql: "SELECT MAX(id) FROM player", in: dbPool)
@@ -469,9 +469,9 @@ class ValueObservationPrintTests: GRDBTestCase {
                 "start",
                 "fetch",
                 "value: nil",
-                "tracked region: \(expectedRegion)",
                 "database did change",
                 "fetch",
+                "tracked region: \(expectedRegion)",
                 "value: nil"])
         }
     }
@@ -491,10 +491,10 @@ class ValueObservationPrintTests: GRDBTestCase {
         
         let logger = TestStream()
         let observation = ValueObservation
-            .tracking({ db -> Int? in
+            .tracking { db -> Int? in
                 let table = try String.fetchOne(db, sql: "SELECT t FROM choice")!
                 return try Int.fetchOne(db, sql: "SELECT MAX(id) FROM \(table)")
-            })
+            }
             .print(to: logger)
         
         let expectedRegionA = try region(sql: "SELECT MAX(id) FROM a", in: dbQueue)
@@ -520,8 +520,8 @@ class ValueObservationPrintTests: GRDBTestCase {
             XCTAssertEqual(logger.strings.prefix(11), [
                 "start",
                 "fetch",
-                "value: nil",
                 "tracked region: \(expectedRegionA),choice(t)",
+                "value: nil",
                 "database did change",
                 "fetch",
                 "tracked region: \(expectedRegionB),choice(t)",
@@ -555,13 +555,15 @@ class ValueObservationPrintTests: GRDBTestCase {
             onChange: { _ in expectation.fulfill() })
         withExtendedLifetime(cancellable) {
             waitForExpectations(timeout: 1, handler: nil)
-            XCTAssertEqual(logger1.strings.prefix(3), [
+            XCTAssertEqual(logger1.strings.prefix(4), [
                 "start",
                 "fetch",
+                "tracked region: player(*)",
                 "value: nil"])
-            XCTAssertEqual(logger2.strings.prefix(3), [
+            XCTAssertEqual(logger2.strings.prefix(4), [
                 "log: start",
                 "log: fetch",
+                "log: tracked region: player(*)",
                 "log: value: nil"])
         }
     }
@@ -589,13 +591,15 @@ class ValueObservationPrintTests: GRDBTestCase {
             onChange: { _ in expectation.fulfill() })
         withExtendedLifetime(cancellable) {
             waitForExpectations(timeout: 1, handler: nil)
-            XCTAssertEqual(logger1.strings.prefix(3), [
+            XCTAssertEqual(logger1.strings.prefix(4), [
                 "start",
                 "fetch",
+                "tracked region: player(*)",
                 "value: nil"])
-            XCTAssertEqual(logger2.strings.prefix(3), [
+            XCTAssertEqual(logger2.strings.prefix(4), [
                 "start",
                 "fetch",
+                "tracked region: player(*)",
                 "value: foo"])
         }
     }

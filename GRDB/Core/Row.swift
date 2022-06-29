@@ -1199,67 +1199,30 @@ extension Row {
 ///     try dbQueue.read { db in
 ///         let rows: RowCursor = try Row.fetchCursor(db, sql: "SELECT * FROM player")
 ///     }
-public final class RowCursor: Cursor {
-    private enum _State {
-        case idle, busy, done, failed
-    }
-    
-    /// The statement iterated by this cursor
+public final class RowCursor: DatabaseCursor {
+    public typealias Element = Row
     public let statement: Statement
-    private let _sqliteStatement: SQLiteStatement
-    private let _row: Row // Reused for performance
-    private var _state = _State.idle
+    /// :nodoc:
+    public var _isDone = false
+    @usableFromInline let _row: Row // Reused for performance
     
     init(statement: Statement, arguments: StatementArguments? = nil, adapter: RowAdapter? = nil) throws {
         self.statement = statement
         self._row = try Row(statement: statement).adapted(with: adapter, layout: statement)
-        self._sqliteStatement = statement.sqliteStatement
         
         // Assume cursor is created for immediate iteration: reset and set arguments
-        statement.reset(withArguments: arguments)
+        try statement.reset(withArguments: arguments)
     }
     
     deinit {
-        if _state == .busy {
-            try? statement.database.statementDidExecute(statement)
-        }
-        
         // Statement reset fails when sqlite3_step has previously failed.
         // Just ignore reset error.
         try? statement.reset()
     }
     
-    public func next() throws -> Row? {
-        switch _state {
-        case .done:
-            // make sure this instance never yields a value again, even if the
-            // statement is reset by another cursor.
-            return nil
-        case .idle:
-            guard try statement.database.statementWillExecute(statement) == nil else {
-                throw DatabaseError(
-                    resultCode: SQLITE_MISUSE,
-                    message: "Can't run statement that requires a customized authorizer from a cursor",
-                    sql: statement.sql,
-                    arguments: statement.arguments)
-            }
-            _state = .busy
-        default:
-            break
-        }
-        
-        switch sqlite3_step(_sqliteStatement) {
-        case SQLITE_DONE:
-            _state = .done
-            try statement.database.statementDidExecute(statement)
-            return nil
-        case SQLITE_ROW:
-            return _row
-        case let code:
-            _state = .failed
-            try statement.database.statementDidFail(statement, withResultCode: code)
-        }
-    }
+    /// :nodoc:
+    @inlinable
+    public func _element(sqliteStatement: SQLiteStatement) -> Row { _row }
 }
 
 extension Row {
@@ -1322,7 +1285,7 @@ extension Row {
     throws -> [Row]
     {
         // The cursor reuses a single mutable row. Return immutable copies.
-        return try Array(fetchCursor(statement, arguments: arguments, adapter: adapter).map { $0.copy() })
+        try Array(fetchCursor(statement, arguments: arguments, adapter: adapter).map { $0.copy() })
     }
     
     /// Returns a set of rows fetched from a prepared statement.
@@ -1343,7 +1306,7 @@ extension Row {
     throws -> Set<Row>
     {
         // The cursor reuses a single mutable row. Return immutable copies.
-        return try Set(fetchCursor(statement, arguments: arguments, adapter: adapter).map { $0.copy() })
+        try Set(fetchCursor(statement, arguments: arguments, adapter: adapter).map { $0.copy() })
     }
     
     /// Returns a single row fetched from a prepared statement.
@@ -2126,27 +2089,27 @@ protocol RowImpl {
 extension RowImpl {
     func copiedRow(_ row: Row) -> Row {
         // unless customized, assume unsafe and unadapted row
-        return Row(impl: ArrayRowImpl(columns: Array(row)))
+        Row(impl: ArrayRowImpl(columns: Array(row)))
     }
     
     func unscopedRow(_ row: Row) -> Row {
         // unless customized, assume unadapted row (see AdaptedRowImpl for customization)
-        return row
+        row
     }
     
     func unadaptedRow(_ row: Row) -> Row {
         // unless customized, assume unadapted row (see AdaptedRowImpl for customization)
-        return row
+        row
     }
     
     func scopes(prefetchedRows: Row.PrefetchedRowsView) -> Row.ScopesView {
         // unless customized, assume unuscoped row (see AdaptedRowImpl for customization)
-        return Row.ScopesView()
+        Row.ScopesView()
     }
     
     func hasNull(atUncheckedIndex index: Int) -> Bool {
         // unless customized, use slow check (see StatementRowImpl and AdaptedRowImpl for customization)
-        return databaseValue(atUncheckedIndex: index).isNull
+        databaseValue(atUncheckedIndex: index).isNull
     }
     
     func fastDecode<Value: DatabaseValueConvertible & StatementColumnConvertible>(
@@ -2155,7 +2118,7 @@ extension RowImpl {
     throws -> Value
     {
         // unless customized, use slow decoding (see StatementRowImpl and AdaptedRowImpl for customization)
-        return try Value.decode(
+        try Value.decode(
             fromDatabaseValue: databaseValue(atUncheckedIndex: index),
             context: RowDecodingContext(row: Row(impl: self), key: .columnIndex(index)))
     }
@@ -2166,21 +2129,21 @@ extension RowImpl {
     throws -> Value?
     {
         // unless customized, use slow decoding (see StatementRowImpl and AdaptedRowImpl for customization)
-        return try Value.decodeIfPresent(
+        try Value.decodeIfPresent(
             fromDatabaseValue: databaseValue(atUncheckedIndex: index),
             context: RowDecodingContext(row: Row(impl: self), key: .columnIndex(index)))
     }
     
     func fastDecodeDataNoCopy(atUncheckedIndex index: Int) throws -> Data {
         // unless customized, copy data (see StatementRowImpl and AdaptedRowImpl for customization)
-        return try Data.decode(
+        try Data.decode(
             fromDatabaseValue: databaseValue(atUncheckedIndex: index),
             context: RowDecodingContext(row: Row(impl: self), key: .columnIndex(index)))
     }
     
     func fastDecodeDataNoCopyIfPresent(atUncheckedIndex index: Int) throws -> Data? {
         // unless customized, copy data (see StatementRowImpl and AdaptedRowImpl for customization)
-        return try Data.decodeIfPresent(
+        try Data.decodeIfPresent(
             fromDatabaseValue: databaseValue(atUncheckedIndex: index),
             context: RowDecodingContext(row: Row(impl: self), key: .columnIndex(index)))
     }
@@ -2188,11 +2151,13 @@ extension RowImpl {
 
 // TODO: merge with StatementCopyRowImpl eventually?
 /// See Row.init(dictionary:)
-private struct ArrayRowImpl: RowImpl {
+struct ArrayRowImpl: RowImpl {
     let columns: [(String, DatabaseValue)]
     
-    init(columns: [(String, DatabaseValue)]) {
-        self.columns = columns
+    init<C>(columns: C)
+    where C: Collection, C.Element == (String, DatabaseValue)
+    {
+        self.columns = Array(columns)
     }
     
     var count: Int { columns.count }
@@ -2216,6 +2181,12 @@ private struct ArrayRowImpl: RowImpl {
         row
     }
 }
+
+#if swift(>=5.6) && canImport(_Concurrency)
+// @unchecked because columns property is not inferred as Sendable
+// TODO: remove this @unchecked when compiler can handle tuples.
+extension ArrayRowImpl: @unchecked Sendable { }
+#endif
 
 
 // TODO: merge with ArrayRowImpl eventually?
@@ -2283,7 +2254,7 @@ private struct StatementRowImpl: RowImpl {
     
     func hasNull(atUncheckedIndex index: Int) -> Bool {
         // Avoid extracting values, because this modifies the SQLite statement.
-        return sqlite3_column_type(sqliteStatement, Int32(index)) == SQLITE_NULL
+        sqlite3_column_type(sqliteStatement, Int32(index)) == SQLITE_NULL
     }
     
     func databaseValue(atUncheckedIndex index: Int) -> DatabaseValue {

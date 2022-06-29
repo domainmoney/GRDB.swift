@@ -542,64 +542,21 @@ public class SQLStatementCursor: Cursor {
 }
 
 extension Database {
-    func executeStatement(_ statement: Statement) throws {
-        let authorizer = try statementWillExecute(statement)
-        let sqliteStatement = statement.sqliteStatement
-        
-        var code: Int32 = SQLITE_OK
-        withAuthorizer(authorizer) {
-            while true {
-                code = sqlite3_step(sqliteStatement)
-                if code == SQLITE_ROW {
-                    // Statement returns a row, but the user ignores the
-                    // content of this row:
-                    //
-                    //     try db.execute(sql: "SELECT ...")
-                    //
-                    // That's OK: maybe the selected rows perform side effects.
-                    // For example:
-                    //
-                    //      try db.execute(sql: "SELECT sqlcipher_export(...)")
-                    //
-                    // Or maybe the user doesn't know that the executed statement
-                    // return rows (https://github.com/groue/GRDB.swift/issues/15);
-                    //
-                    //      try db.execute(sql: "PRAGMA journal_mode=WAL")
-                    //
-                    // It is thus important that we consume *all* rows.
-                    continue
-                } else {
-                    break
-                }
-            }
-        }
-        
-        // Statement has been fully executed, and authorizer has been reset.
-        // We can now move on further tasks.
-        
-        if code == SQLITE_DONE {
-            try statementDidExecute(statement)
-        } else {
-            assert(code != SQLITE_ROW)
-            try statementDidFail(statement, withResultCode: code)
-        }
-    }
-    
-    /// Returns the authorizer that should be used during statement execution
-    /// (this allows preventing the truncate optimization when there exists a
-    /// transaction observer for row deletion).
+    /// Makes sure statement can be executed, and prepares database observation.
     @usableFromInline
-    func statementWillExecute(_ statement: Statement) throws -> StatementAuthorizer? {
+    func statementWillExecute(_ statement: Statement) throws {
         // Two things must prevent the statement from executing: aborted
         // transactions, and database suspension.
         try checkForAbortedTransaction(sql: statement.sql, arguments: statement.arguments)
         try checkForSuspensionViolation(from: statement)
         
-        if _isRecordingSelectedRegion {
-            _selectedRegion.formUnion(statement.databaseRegion)
+        // Database observation: record what the statement is looking at.
+        if isRecordingSelectedRegion {
+            selectedRegion.formUnion(statement.databaseRegion)
         }
         
-        return observationBroker.statementWillExecute(statement)
+        // Database observation: prepare transaction observers.
+        observationBroker.statementWillExecute(statement)
     }
     
     /// May throw a cancelled commit error, if a transaction observer cancels
@@ -632,7 +589,8 @@ extension Database {
             resultCode: resultCode,
             message: lastErrorMessage,
             sql: statement.sql,
-            arguments: statement.arguments)
+            arguments: statement.arguments,
+            publicStatementArguments: configuration.publicStatementArguments)
     }
 }
 
@@ -681,5 +639,9 @@ struct StatementCache {
     
     mutating func remove(_ statement: Statement) {
         statements.removeFirst { $0.value === statement }
+    }
+    
+    mutating func removeAll(where shouldBeRemoved: (Statement) -> Bool) {
+        statements = statements.filter { (_, statement) in !shouldBeRemoved(statement) }
     }
 }

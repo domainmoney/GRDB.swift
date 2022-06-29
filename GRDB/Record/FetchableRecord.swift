@@ -511,65 +511,28 @@ extension FetchRequest where RowDecoder: FetchableRecord & Hashable {
 ///     try dbQueue.read { db in
 ///         let players: RecordCursor<Player> = try Player.fetchCursor(db, sql: "SELECT * FROM player")
 ///     }
-public final class RecordCursor<Record: FetchableRecord>: Cursor {
-    private enum _State {
-        case idle, busy, done, failed
-    }
-    
-    private let _statement: Statement
-    private let _row: Row // Reused for performance
-    private let _sqliteStatement: SQLiteStatement
-    private var _state = _State.idle
+public final class RecordCursor<Record: FetchableRecord>: DatabaseCursor {
+    public typealias Element = Record
+    public let statement: Statement
+    /// :nodoc:
+    public var _isDone = false
+    private let row: Row // Instanciated once, reused for performance
     
     init(statement: Statement, arguments: StatementArguments? = nil, adapter: RowAdapter? = nil) throws {
-        _statement = statement
-        _row = try Row(statement: statement).adapted(with: adapter, layout: statement)
-        _sqliteStatement = statement.sqliteStatement
-        
-        // Assume cursor is created for immediate iteration: reset and set arguments
-        statement.reset(withArguments: arguments)
+        self.statement = statement
+        row = try Row(statement: statement).adapted(with: adapter, layout: statement)
+        try statement.reset(withArguments: arguments)
     }
     
     deinit {
-        if _state == .busy {
-            try? _statement.database.statementDidExecute(_statement)
-        }
-        
         // Statement reset fails when sqlite3_step has previously failed.
         // Just ignore reset error.
-        try? _statement.reset()
+        try? statement.reset()
     }
     
-    public func next() throws -> Record? {
-        switch _state {
-        case .done:
-            // make sure this instance never yields a value again, even if the
-            // statement is reset by another cursor.
-            return nil
-        case .idle:
-            guard try _statement.database.statementWillExecute(_statement) == nil else {
-                throw DatabaseError(
-                    resultCode: SQLITE_MISUSE,
-                    message: "Can't run statement that requires a customized authorizer from a cursor",
-                    sql: _statement.sql,
-                    arguments: _statement.arguments)
-            }
-            _state = .busy
-        default:
-            break
-        }
-        
-        switch sqlite3_step(_sqliteStatement) {
-        case SQLITE_DONE:
-            _state = .done
-            try _statement.database.statementDidExecute(_statement)
-            return nil
-        case SQLITE_ROW:
-            return Record(row: _row)
-        case let code:
-            _state = .failed
-            try _statement.database.statementDidFail(_statement, withResultCode: code)
-        }
+    /// :nodoc:
+    public func _element(sqliteStatement: SQLiteStatement) -> Record {
+        Record(row: row)
     }
 }
 
@@ -635,7 +598,7 @@ public enum DatabaseDateDecodingStrategy {
 // MARK: - DatabaseColumnDecodingStrategy
 
 /// `DatabaseColumnDecodingStrategy` specifies how `FetchableRecord` types that
-/// also adopt the standard `Decodable` protocol look for the database colums
+/// also adopt the standard `Decodable` protocol look for the database columns
 /// that match their coding keys.
 ///
 /// For example:
@@ -726,5 +689,4 @@ public enum DatabaseColumnDecodingStrategy {
         }
         return result
     }
-
 }

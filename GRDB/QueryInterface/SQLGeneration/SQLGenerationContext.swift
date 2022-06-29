@@ -423,7 +423,7 @@ public class TableAlias: Hashable {
     
     /// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
     ///
-    /// An expression that evaluates to true if the record refered by this
+    /// An expression that evaluates to true if the record referred by this
     /// `TableAlias` exists.
     ///
     /// For example, here is how filter books and only keep those that are not
@@ -437,8 +437,7 @@ public class TableAlias: Hashable {
     ///         return try request.fetchAll(db)
     ///     }
     public var exists: SQLExpression {
-        // TODO: this fails with SQL views. Can we do something?
-        SQLExpression.qualifiedFastPrimaryKey(self) != nil
+        SQLExpression.qualifiedExists(self)
     }
     
     /// :nodoc:

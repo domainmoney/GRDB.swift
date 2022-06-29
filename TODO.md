@@ -1,5 +1,6 @@
 ## Cleanup
 
+- [ ] Schemas and attached databases: can we enhance our pragma handling from https://sqlite.org/forum/forumpost/27f85a4634
 - [ ] SQLCipher: sqlite3_rekey is discouraged (https://github.com/ccgus/fmdb/issues/547#issuecomment-259219320)
 - [ ] Write regression tests for #156 and #157
 - [ ] deprecate ScopeAdapter(base, scopes), because base.addingScopes has a better implementation
@@ -11,6 +12,7 @@
 
 - [ ] Enhance the introduction to SQLRequest, based on the feedback in https://github.com/groue/GRDB.swift/issues/617
 - [ ] Association: document how to use aggregates with inner join (testAnnotatedWithHasManyDefaultMaxJoiningRequired)
+- [ ] Should we document that `PRAGMA locking_mode = EXCLUSIVE` improves performances? https://sqlite.org/forum/forumpost/866bf3407a
 
 
 ## Features
@@ -21,9 +23,18 @@
 - [ ] Property wrapper that decodes dictionaries (but how to tell the key column?)
 - [X] See if SQLITE_FCNTL_DATA_VERSION could help working around the lack of snapshots in order to avoid double initial fetch of ValueObservation. Result: no, it does not look it returns values that are comparable between two distinct SQLite connections (from the initial reader, and from the writer thhat starts the observation)
 - [ ] Grab all FTS tokens in a string
+- [ ] GRDB 6: Swift 5.7
+- [ ] GRDB 6: any / some
+- [ ] GRDB 6: primary associated types (cursor, requests, ...)
+- [ ] GRDB 6: remove existential/generic duplicated methods
+- [ ] GRDB 6: remove useless AnyXXX Type erasers
 - [ ] GRDB 6: decoding errors
 - [ ] GRDB 6: conflict resolution in persistence methods
-- [ ] Long run edition. Use case: user edits the database (CRUD) but the application wants to commmit and the end of the editing session.
+- [ ] GRDB 6: UPSERT
+- [ ] GRDB 6: support for RETURNING
+- [ ] GRDB 6: allow mutating `update` (for timestamps)
+- [ ] GRDB 6: choose persistence table
+- [ ] Long run edition. Use case: user edits the database (CRUD) but the application wants to commit and the end of the editing session.
     * Create an edition SQLite connection with an open transaction (a new kind of DatabaseWriter with a save() method)
     * All other writes will fail with SQLITE_BUSY. Unless they are schedules in a target dispatch queue which is paused during the edition.
 - [ ] Can we use generated columns to makes it convenient to index on inserted JSON objects? https://github.com/apple/swift-package-manager/pull/3090#issuecomment-740091760
@@ -37,7 +48,6 @@
 - [ ] Support for more kinds of joins: https://github.com/groue/GRDB.swift/issues/740
 - [ ] HasAndBelongsToMany: https://github.com/groue/GRDB.swift/issues/711
 - [ ] Support UNION https://github.com/groue/GRDB.swift/issues/671 (https://www.sqlite.org/lang_select.html#compound)
-- [ ] request.exists(db) as an alternative to fetchOne(db) != nil. Can generate optimized SQL.
 - [ ] Measure the duration of transactions 
 - [ ] Improve SQL generation for `Player.....fetchCount(db)`, especially with distinct. Try to avoid `SELECT COUNT(*) FROM (SELECT DISTINCT player.* ...)`
 - [ ] Alternative technique for custom SQLite builds: see the Podfile at https://github.com/CocoaPods/CocoaPods/issues/9104, and https://github.com/clemensg/sqlite3pod
@@ -52,7 +62,6 @@
     - [ ] CASE x WHEN w1 THEN r1 WHEN w2 THEN r2 ELSE r3 END https://www.sqlite.org/lang_expr.html
 - [ ] Allow concurrent reads from a snapshot
 - [ ] Check https://sqlite.org/sqlar.html
-- [ ] FTS: prefix queries
 - [ ] More schema alterations
 - [ ] Database.clearSchemaCache() is fine, but what about dbPool readers? Can we invalidate the cache for a whole pool?
 
@@ -72,7 +81,7 @@
     - [ ] Introduce some record protocol with an associated primary key type. Restrict filter(key:) methods to this type. Allow distinguishing FooId from BarId types.
     - [ ] Replace Column with TypedColumn. How to avoid code duplication (repeated types)? Keypaths?
 - [ ] Remove prefix from association keys when association name is namespaced: https://github.com/groue/GRDB.swift/issues/584#issuecomment-517658122
-- [ ] Alternative support for custom SQLite builds, wih CocoaPods: https://github.com/CocoaPods/CocoaPods/issues/9103
+- [ ] Alternative support for custom SQLite builds, with CocoaPods: https://github.com/CocoaPods/CocoaPods/issues/9103
 
 
 ## Unsure how

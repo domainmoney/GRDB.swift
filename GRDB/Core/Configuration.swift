@@ -1,12 +1,13 @@
-import Foundation
 import Dispatch
+import Foundation
 
 /// Configuration for a DatabaseQueue or DatabasePool.
 public struct Configuration {
     
     // MARK: - Misc options
     
-    /// If true, foreign key constraints are checked.
+    /// If true (the default), support for foreign keys is enabled.
+    /// See <https://www.sqlite.org/foreignkeys.html> for more information.
     ///
     /// Default: true
     public var foreignKeysEnabled = true
@@ -100,6 +101,52 @@ public struct Configuration {
     ///
     /// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
     public var observesSuspensionNotifications = false
+    
+    /// If false (the default), statement arguments are not visible in the
+    /// description of database errors and trace events, preventing sensitive
+    /// information from leaking in unexpected places.
+    ///
+    /// For example:
+    ///
+    ///     // Error: sensitive information is not printed when an error occurs:
+    ///     do {
+    ///         let email = "..." // sensitive information
+    ///         let player = try Player.filter(Column("email") == email).fetchOne(db)
+    ///     } catch {
+    ///         print(error)
+    ///     }
+    ///
+    ///     // Trace: sensitive information is not printed when a statement is traced:
+    ///     db.trace { event in
+    ///         print(event)
+    ///     }
+    ///     let email = "..." // sensitive information
+    ///     let player = try Player.filter(Column("email") == email).fetchOne(db)
+    ///
+    /// For debugging purpose, you can set this flag to true, and get more
+    /// precise database reports. It is your responsibility to prevent sensitive
+    /// information from leaking in unexpected locations, so you should not set
+    /// this flag in release builds (think about GDPR and other
+    /// privacy-related rules):
+    ///
+    ///     var config = Configuration()
+    ///     #if DEBUG
+    ///     // Protect sensitive information by enabling verbose debugging in DEBUG builds only
+    ///     config.publicStatementArguments = true
+    ///     #endif
+    ///
+    ///     // The descriptions of trace events and errors now contain the
+    ///     // sensitive information:
+    ///     db.trace { event in
+    ///         print(event)
+    ///     }
+    ///     do {
+    ///         let email = "..."
+    ///         let player = try Player.filter(Column("email") == email).fetchOne(db)
+    ///     } catch {
+    ///         print(error)
+    ///     }
+    public var publicStatementArguments = false
     
     // MARK: - Managing SQLite Connections
     
@@ -198,21 +245,36 @@ public struct Configuration {
     ///
     /// The quality of service is ignored if you supply a target queue.
     ///
-    /// Default: .default
-    public var qos: DispatchQoS = .default
+    /// Default: .userInitiated
+    public var qos: DispatchQoS = .userInitiated
     
-    /// The target queue for all database accesses.
+    /// The quality of service of read accesses
+    var readQoS: DispatchQoS {
+        targetQueue?.qos ?? self.qos
+    }
+    
+    /// A target queue for database accesses.
     ///
-    /// When you use a database pool, make sure the queue is concurrent. If
-    /// it is serial, no concurrent database access can happen, and you may
-    /// experience deadlocks.
+    /// Database connections which are not read-only will prefer
+    /// `writeTargetQueue` instead, if it is not nil.
+    ///
+    /// When you use a database pool, make sure this queue is concurrent. This
+    /// is because in a serial dispatch queue, no concurrent database access can
+    /// happen, and you may experience deadlocks.
     ///
     /// If the queue is nil, all database accesses happen in unspecified
-    /// dispatch queues whose quality of service and label are determined by the
-    /// `qos` and `label` Configuration properties.
+    /// dispatch queues whose quality of service is determined by the
+    /// `qos` property.
     ///
     /// Default: nil
     public var targetQueue: DispatchQueue? = nil
+    
+    /// The target queue for database connections which are not read-only.
+    ///
+    /// If this queue is nil, writer connections are controlled by `targetQueue`.
+    ///
+    /// Default: nil
+    public var writeTargetQueue: DispatchQueue? = nil
     
     // MARK: - Factory Configuration
     
@@ -240,7 +302,19 @@ public struct Configuration {
         (self.label ?? defaultLabel) + (purpose.map { "." + $0 } ?? "")
     }
     
-    func makeDispatchQueue(label: String) -> DispatchQueue {
+    /// Creates a DispatchQueue which has the quality of service and target
+    /// queue of write accesses.
+    func makeWriterDispatchQueue(label: String) -> DispatchQueue {
+        if let targetQueue = writeTargetQueue ?? targetQueue {
+            return DispatchQueue(label: label, target: targetQueue)
+        } else {
+            return DispatchQueue(label: label, qos: qos)
+        }
+    }
+    
+    /// Creates a DispatchQueue which has the quality of service and target
+    /// queue of read accesses.
+    func makeReaderDispatchQueue(label: String) -> DispatchQueue {
         if let targetQueue = targetQueue {
             return DispatchQueue(label: label, target: targetQueue)
         } else {

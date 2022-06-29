@@ -227,7 +227,7 @@ This publisher has the same behavior as ValueObservation:
 - It notifies an initial value before the eventual changes.
 - It may coalesce subsequent changes into a single notification.
 - It may notify consecutive identical values. You can filter out the undesired duplicates with the `removeDuplicates()` Combine operator, but we suggest you have a look at the [removeDuplicates()](../README.md#valueobservationremoveduplicates) GRDB operator also.
-- It stops emitting any value after the database connection is closed. But it never completes.
+- It only completes when it is cancelled.
 - By default, it notifies the initial value, as well as eventual changes and errors, on the main thread, asynchronously.
     
     This can be configured with the `scheduling` argument. It does not accept a Combine scheduler, but a [ValueObservation scheduler](../README.md#valueobservation-scheduling).
@@ -317,7 +317,7 @@ In other words, whenever you need to perform some database access or observation
 
 To this end, remember that *all database publishers can perform several requests*.
 
-In the example below, we are totally sure that the published `HallOfFame` values will never contain inconsistent values, because it is produced by one and ony one publisher:
+In the example below, we are totally sure that the published `HallOfFame` values will never contain inconsistent values, because it is produced by one and only one publisher:
 
 ```swift
 struct HallOfFame {
