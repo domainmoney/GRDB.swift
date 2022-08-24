@@ -186,14 +186,16 @@ final class ValueConcurrentObserver<Reducer: ValueReducer> {
 // 1. Start the observation without waiting for a write access (the expected
 //    benefit of `DatabasePool`).
 // 2. Make sure we do not miss a change (a documented guarantee)
+//
+// Support for `SQLITE_ENABLE_SNAPSHOT` is implemented by our
+// `WALSnapshot` class.
 extension ValueConcurrentObserver {
     // Starts the observation
-    func start() -> DatabaseCancellable {
-        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-        let (notificationCallbacksOpt, databaseAccessOpt) = lock.synchronized {
+    func start() -> AnyDatabaseCancellable {
+        let (notificationCallbacks, databaseAccess) = lock.synchronized {
             (self.notificationCallbacks, self.databaseAccess)
         }
-        guard let notificationCallbacks = notificationCallbacksOpt, let databaseAccess = databaseAccessOpt else {
+        guard let notificationCallbacks, let databaseAccess else {
             // Likely a GRDB bug: during a synchronous start, user is not
             // able to cancel observation.
             fatalError("can't start a cancelled or failed observation")
@@ -234,7 +236,6 @@ extension ValueConcurrentObserver {
     }
 }
 
-#if SQLITE_ENABLE_SNAPSHOT
 // MARK: - Starting the Observation (with SQLITE_ENABLE_SNAPSHOT)
 
 extension ValueConcurrentObserver {
@@ -248,14 +249,23 @@ extension ValueConcurrentObserver {
         // transaction to complete.
         //
         // Fetch value & tracked region in a synchronous way.
+        //
+        // TODO: we currently perform the initial read from a snapshot, because
+        // it is a handy way to keep a read transaction open until we grab a
+        // write access, and compare the database versions. The problem is that
+        // we do not control the number of created shapshots: we should instead
+        // use a reader from the pool.
         let initialSnapshot = try databaseAccess.dbPool.makeSnapshot()
-        let (fetchedValue, initialRegion): (Reducer.Fetched, DatabaseRegion) = try initialSnapshot.read { db in
+        let (fetchedValue, initialRegion, initialWALSnapshot) = try initialSnapshot.read {
+            db -> (Reducer.Fetched, DatabaseRegion, WALSnapshot?) in
+            // swiftlint:disable:previous closure_parameter_position
+            
             switch trackingMode {
             case let .constantRegion(regions):
                 let fetchedValue = try databaseAccess.fetch(db)
                 let region = try DatabaseRegion.union(regions)(db)
                 let initialRegion = try region.observableRegion(db)
-                return (fetchedValue, initialRegion)
+                return (fetchedValue, initialRegion, WALSnapshot(db))
                 
             case .constantRegionRecordedFromSelection,
                     .nonConstantRegionRecordedFromSelection:
@@ -264,13 +274,13 @@ extension ValueConcurrentObserver {
                     try databaseAccess.fetch(db)
                 }
                 let initialRegion = try region.observableRegion(db)
-                return (fetchedValue, initialRegion)
+                return (fetchedValue, initialRegion, WALSnapshot(db))
             }
         }
         
         // Reduce
-        let initialValue: Reducer.Value = reduceQueue.sync {
-            guard let initialValue = reducer._value(fetchedValue) else {
+        let initialValue = try reduceQueue.sync {
+            guard let initialValue = try reducer._value(fetchedValue) else {
                 fatalError("Broken contract: reducer has no initial value")
             }
             return initialValue
@@ -280,6 +290,7 @@ extension ValueConcurrentObserver {
         asyncStartObservation(
             from: databaseAccess,
             initialSnapshot: initialSnapshot,
+            initialWALSnapshot: initialWALSnapshot,
             initialRegion: initialRegion)
         
         return initialValue
@@ -293,6 +304,12 @@ extension ValueConcurrentObserver {
         // for observing the database is to be able to fetch the initial value
         // without having to wait for an eventual long-running write
         // transaction to complete.
+        //
+        // TODO: we currently perform the initial read from a snapshot, because
+        // it is a handy way to keep a read transaction open until we grab a
+        // write access, and compare the database versions. The problem is that
+        // we do not control the number of created shapshots: we should instead
+        // use a reader from the pool.
         do {
             let initialSnapshot = try databaseAccess.dbPool.makeSnapshot()
             initialSnapshot.asyncRead { dbResult in
@@ -327,16 +344,19 @@ extension ValueConcurrentObserver {
                         let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
                         guard isNotifying else { return /* Cancelled */ }
                         
-                        guard let initialValue = self.reducer._value(fetchedValue) else {
-                            fatalError("Broken contract: reducer has no initial value")
-                        }
-                        
-                        // Notify
-                        self.scheduler.schedule {
-                            // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-                            let onChangeOpt = self.lock.synchronized { self.notificationCallbacks?.onChange }
-                            guard let onChange = onChangeOpt else { return /* Cancelled */ }
-                            onChange(initialValue)
+                        do {
+                            guard let initialValue = try self.reducer._value(fetchedValue) else {
+                                fatalError("Broken contract: reducer has no initial value")
+                            }
+                            
+                            // Notify
+                            self.scheduler.schedule {
+                                let onChange = self.lock.synchronized { self.notificationCallbacks?.onChange }
+                                guard let onChange else { return /* Cancelled */ }
+                                onChange(initialValue)
+                            }
+                        } catch {
+                            self.notifyError(error)
                         }
                     }
                     
@@ -344,6 +364,7 @@ extension ValueConcurrentObserver {
                     self.asyncStartObservation(
                         from: databaseAccess,
                         initialSnapshot: initialSnapshot,
+                        initialWALSnapshot: WALSnapshot(db),
                         initialRegion: initialRegion)
                 } catch {
                     self.notifyError(error)
@@ -357,12 +378,12 @@ extension ValueConcurrentObserver {
     private func asyncStartObservation(
         from databaseAccess: DatabaseAccess,
         initialSnapshot: DatabaseSnapshot,
+        initialWALSnapshot: WALSnapshot?,
         initialRegion: DatabaseRegion)
     {
         databaseAccess.dbPool.asyncWriteWithoutTransaction { writerDB in
-            // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-            let eventsOpt = self.lock.synchronized { self.notificationCallbacks?.events }
-            guard let events = eventsOpt else { return /* Cancelled */ }
+            let events = self.lock.synchronized { self.notificationCallbacks?.events }
+            guard let events else { return /* Cancelled */ }
             
             do {
                 var observedRegion = initialRegion
@@ -371,13 +392,17 @@ extension ValueConcurrentObserver {
                 try writerDB.isolated(readOnly: true) {
                     // Keep DatabaseSnaphot alive until we have compared
                     // database versions. It prevents database checkpointing,
-                    // and keeps versions (`sqlite3_snapshot`) valid
+                    // and keeps WAL snapshots (`sqlite3_snapshot`) valid
                     // and comparable.
-                    let isModified: Bool = try withExtendedLifetime(initialSnapshot) {
-                        guard let initialVersion = initialSnapshot.version else {
+                    let isModified = withExtendedLifetime(initialSnapshot) {
+                        guard let initialWALSnapshot,
+                              let currentWALSnapshot = WALSnapshot(writerDB)
+                        else {
                             return true
                         }
-                        return try writerDB.wasChanged(since: initialVersion)
+                        let ordering = initialWALSnapshot.compare(currentWALSnapshot)
+                        assert(ordering <= 0, "Unexpected snapshot ordering")
+                        return ordering < 0
                     }
                     
                     if isModified {
@@ -414,16 +439,23 @@ extension ValueConcurrentObserver {
                             let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
                             guard isNotifying else { return /* Cancelled */ }
                             
-                            let value = self.reducer._value(fetchedValue)
-                            
-                            // Notify
-                            if let value = value {
-                                self.scheduler.schedule {
-                                    // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-                                    let onChangeOpt = self.lock.synchronized { self.notificationCallbacks?.onChange }
-                                    guard let onChange = onChangeOpt else { return /* Cancelled */ }
-                                    onChange(value)
+                            do {
+                                let value = try self.reducer._value(fetchedValue)
+                                
+                                // Notify
+                                if let value = value {
+                                    self.scheduler.schedule {
+                                        let onChange = self.lock.synchronized { self.notificationCallbacks?.onChange }
+                                        guard let onChange else { return /* Cancelled */ }
+                                        onChange(value)
+                                    }
                                 }
+                            } catch {
+                                let dbPool = self.lock.synchronized { self.databaseAccess?.dbPool }
+                                dbPool?.asyncWriteWithoutTransaction { writerDB in
+                                    self.stopDatabaseObservation(writerDB)
+                                }
+                                self.notifyError(error)
                             }
                         }
                     } else {
@@ -437,156 +469,6 @@ extension ValueConcurrentObserver {
         }
     }
 }
-
-#else
-// MARK: - Starting the Observation (without SQLITE_ENABLE_SNAPSHOT)
-
-extension ValueConcurrentObserver {
-    /// Synchronously starts the observation, and returns the initial value.
-    ///
-    /// Unlike `asyncStart()`, this method does not notify the initial value or error.
-    private func syncStart(from databaseAccess: DatabaseAccess) throws -> Reducer.Value {
-        // Start from a read access. The whole point of using a DatabasePool
-        // for observing the database is to be able to fetch the initial value
-        // without having to wait for an eventual long-running write
-        // transaction to complete.
-        //
-        // Fetch in a synchronous reentrant way, in case this method is called
-        // from a database access.
-        let fetchedValue = try databaseAccess.dbPool.unsafeReentrantRead { db in
-            try db.isolated(readOnly: true) {
-                try databaseAccess.fetch(db)
-            }
-        }
-        
-        // Reduce
-        let initialValue: Reducer.Value = reduceQueue.sync {
-            guard let initialValue = reducer._value(fetchedValue) else {
-                fatalError("Broken contract: reducer has no initial value")
-            }
-            return initialValue
-        }
-        
-        // Start observation
-        asyncStartObservation(from: databaseAccess)
-        
-        return initialValue
-    }
-    
-    /// Asynchronously starts the observation
-    ///
-    /// Unlike `syncStart()`, this method does notify the initial value or error.
-    private func asyncStart(from databaseAccess: DatabaseAccess) {
-        // Start from a read access. The whole point of using a DatabasePool
-        // for observing the database is to be able to fetch the initial value
-        // without having to wait for an eventual long-running write
-        // transaction to complete.
-        databaseAccess.dbPool.asyncRead { dbResult in
-            let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
-            guard isNotifying else { return /* Cancelled */ }
-            
-            do {
-                // Fetch
-                let fetchedValue = try databaseAccess.fetch(dbResult.get())
-                
-                // Reduce
-                //
-                // Reducing is performed asynchronously, so that we do not lock
-                // a database dispatch queue longer than necessary.
-                self.reduceQueue.async {
-                    let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
-                    guard isNotifying else { return /* Cancelled */ }
-                    
-                    guard let initialValue = self.reducer._value(fetchedValue) else {
-                        fatalError("Broken contract: reducer has no initial value")
-                    }
-                    
-                    // Notify
-                    self.scheduler.schedule {
-                        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-                        let onChangeOpt = self.lock.synchronized { self.notificationCallbacks?.onChange }
-                        guard let onChange = onChangeOpt else { return /* Cancelled */ }
-                        onChange(initialValue)
-                    }
-                    
-                    // Start observation
-                    self.asyncStartObservation(from: databaseAccess)
-                }
-            } catch {
-                self.notifyError(error)
-            }
-        }
-    }
-    
-    private func asyncStartObservation(from databaseAccess: DatabaseAccess) {
-        databaseAccess.dbPool.asyncWriteWithoutTransaction { writerDB in
-            // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-            let eventsOpt = self.lock.synchronized { self.notificationCallbacks?.events }
-            guard let events = eventsOpt else { return /* Cancelled */ }
-            
-            // We don't know if database has changed or not.
-            // So we assume it did, so that we are sure that we do
-            // not miss a database change.
-            events.databaseDidChange?()
-            
-            do {
-                // Fetch
-                let fetchedValue: Reducer.Fetched
-                
-                switch self.trackingMode {
-                case let .constantRegion(regions):
-                    fetchedValue = try writerDB.isolated(readOnly: true) {
-                        try databaseAccess.fetch(writerDB)
-                    }
-                    let region = try DatabaseRegion.union(regions)(writerDB)
-                    let observedRegion = try region.observableRegion(writerDB)
-                    events.willTrackRegion?(observedRegion)
-                    self.startObservation(writerDB, observedRegion: observedRegion)
-                    
-                case .constantRegionRecordedFromSelection,
-                        .nonConstantRegionRecordedFromSelection:
-                    var region = DatabaseRegion()
-                    fetchedValue = try writerDB.recordingSelection(&region) {
-                        try writerDB.isolated(readOnly: true) {
-                            try databaseAccess.fetch(writerDB)
-                        }
-                    }
-                    let observedRegion = try region.observableRegion(writerDB)
-                    events.willTrackRegion?(observedRegion)
-                    self.startObservation(writerDB, observedRegion: observedRegion)
-                }
-                
-                // Reduce
-                //
-                // Reducing is performed asynchronously, so that we do not lock
-                // the writer dispatch queue longer than necessary.
-                //
-                // Important: reduceQueue.async guarantees the same ordering
-                // between transactions and notifications!
-                self.reduceQueue.async {
-                    let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
-                    guard isNotifying else { return /* Cancelled */ }
-                    
-                    let value = self.reducer._value(fetchedValue)
-                    
-                    // Notify
-                    if let value = value {
-                        self.scheduler.schedule {
-                            // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-                            let onChangeOpt = self.lock.synchronized { self.notificationCallbacks?.onChange }
-                            guard let onChange = onChangeOpt else { return /* Cancelled */ }
-                            onChange(value)
-                        }
-                    }
-                }
-            } catch {
-                self.stopDatabaseObservation(writerDB)
-                self.notifyError(error)
-            }
-        }
-    }
-}
-#endif
 
 // MARK: - Observing Database Transactions
 
@@ -615,13 +497,12 @@ extension ValueConcurrentObserver: TransactionObserver {
         // Reset the isModified flag until next transaction
         observationState.isModified = false
         
-        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
         // Ignore transaction unless we are still notifying database events, and
         // we can still access the database.
-        let (eventsOpt, databaseAccessOpt) = lock.synchronized {
+        let (events, databaseAccess) = lock.synchronized {
             (notificationCallbacks?.events, self.databaseAccess)
         }
-        guard let events = eventsOpt, let databaseAccess = databaseAccessOpt else { return /* Cancelled */ }
+        guard let events, let databaseAccess else { return /* Cancelled */ }
         
         events.databaseDidChange?()
         
@@ -688,14 +569,13 @@ extension ValueConcurrentObserver: TransactionObserver {
                 let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
                 guard isNotifying else { return /* Cancelled */ }
                 
-                let value = self.reducer._value(fetchedValue)
+                let value = try self.reducer._value(fetchedValue)
                 
                 // Notify value
                 if let value = value {
                     self.scheduler.schedule {
-                        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-                        let onChangeOpt = self.lock.synchronized { self.notificationCallbacks?.onChange }
-                        guard let onChange = onChangeOpt else { return /* Cancelled */ }
+                        let onChange = self.lock.synchronized { self.notificationCallbacks?.onChange }
+                        guard let onChange else { return /* Cancelled */ }
                         onChange(value)
                     }
                 }
@@ -719,21 +599,20 @@ extension ValueConcurrentObserver: TransactionObserver {
 
 extension ValueConcurrentObserver: DatabaseCancellable {
     func cancel() {
-        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
         // Notify cancellation
-        let (eventsOpt, dbPoolOpt): (ValueObservationEvents?, DatabasePool?) = lock.synchronized {
+        let (events, dbPool): (ValueObservationEvents?, DatabasePool?) = lock.synchronized {
             let events = notificationCallbacks?.events
             notificationCallbacks = nil
             return (events, databaseAccess?.dbPool)
         }
         
-        guard let events = eventsOpt else { return /* Cancelled or failed */ }
+        guard let events else { return /* Cancelled or failed */ }
         events.didCancel?()
         
         // Stop observing the database
         // Do it asynchronously, so that we do not block the current thread:
         // cancellation may be triggered while a long write access is executing.
-        guard let dbPool = dbPoolOpt else { return /* Failed */ }
+        guard let dbPool else { return /* Failed */ }
         dbPool.asyncWriteWithoutTransaction { db in
             self.stopDatabaseObservation(db)
         }
@@ -741,13 +620,12 @@ extension ValueConcurrentObserver: DatabaseCancellable {
     
     func notifyError(_ error: Error) {
         scheduler.schedule {
-            // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-            let eventsOpt: ValueObservationEvents? = self.lock.synchronized {
+            let events = self.lock.synchronized {
                 let events = self.notificationCallbacks?.events
                 self.notificationCallbacks = nil
                 return events
             }
-            guard let events = eventsOpt else { return /* Cancelled */ }
+            guard let events else { return /* Cancelled */ }
             events.didFail?(error)
         }
     }
