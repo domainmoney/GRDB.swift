@@ -101,19 +101,16 @@ let package = Package(
                 "SPM",
                 "generatePerformanceReport.rb",
                 "parsePerformanceTests.rb",
-                "GRDBTests/getThreadsCount.c",
-            ],
-            swiftSettings: [
-                .define("SQLITE_HAS_CODEC"),
-                .define("GRDBCIPHER"),
-                .define("SQLITE_ENABLE_FTS5")
             ],
             resources: [
                 .copy("GRDBTests/Betty.jpeg"),
                 .copy("GRDBTests/InflectionsTests.json"),
             ],
-            cSettings: cSettings,
-            swiftSettings: swiftSettings)
+            swiftSettings: [
+                .define("SQLITE_HAS_CODEC"),
+                .define("GRDBCIPHER"),
+                .define("SQLITE_ENABLE_FTS5")
+            ])
     ],
     swiftLanguageVersions: [.v5]
 )
