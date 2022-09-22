@@ -347,6 +347,10 @@ public final class Database: CustomStringConvertible, CustomDebugStringConvertib
     }
     
     private func activateExtendedCodes() throws {
+        if (configuration.SQLiteOpenFlags & 0x02000000 /* SQLITE_OPEN_EXRESCODE */) != 0 {
+            // Nothing to do
+            return
+        }
         let code = sqlite3_extended_result_codes(sqliteConnection, 1)
         guard code == SQLITE_OK else {
             throw DatabaseError(resultCode: code, message: String(cString: sqlite3_errmsg(sqliteConnection)))
@@ -1009,24 +1013,33 @@ public final class Database: CustomStringConvertible, CustomDebugStringConvertib
     ///
     /// - parameter readOnly: If true, writes are forbidden.
     func isolated<T>(readOnly: Bool = false, _ block: () throws -> T) throws -> T {
-        var result: T?
-        if readOnly {
-            // Enter read-only mode before starting a transaction, so that the
-            // transaction commit does not trigger database observation.
-            // See <https://github.com/groue/GRDB.swift/pull/1213>.
-            try self.readOnly {
+        if sqlite3_get_autocommit(sqliteConnection) == 0 {
+            // Spare savepoints
+            if readOnly {
+                return try self.readOnly(block)
+            } else {
+                return try block()
+            }
+        } else {
+            var result: T?
+            if readOnly {
+                // Enter read-only mode before starting a transaction, so that the
+                // transaction commit does not trigger database observation.
+                // See <https://github.com/groue/GRDB.swift/pull/1213>.
+                try self.readOnly {
+                    try inSavepoint {
+                        result = try block()
+                        return .commit
+                    }
+                }
+            } else {
                 try inSavepoint {
                     result = try block()
                     return .commit
                 }
             }
-        } else {
-            try inSavepoint {
-                result = try block()
-                return .commit
-            }
+            return result!
         }
-        return result!
     }
     
     /// Executes a block inside a savepoint.

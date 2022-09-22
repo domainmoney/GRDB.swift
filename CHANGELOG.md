@@ -7,11 +7,12 @@ GRDB adheres to [Semantic Versioning](https://semver.org/), with one exception: 
 
 #### 6.x Releases
 
-- `6.0.0` Betas - [6.0.0-beta](#600-beta) | [6.0.0-beta.2](#600-beta2)
+- `6.0.x` Releases - [6.0.0](#600)
+- `6.0.0` Betas - [6.0.0-beta](#600-beta) | [6.0.0-beta.2](#600-beta2) | [6.0.0-beta.3](#600-beta3) | [6.0.0-beta.4](#600-beta4)
 
 #### 5.x Releases
 
-- `5.26.x` Releases - [5.26.0](#5260)
+- `5.26.x` Releases - [5.26.0](#5260) - [5.26.1](#5261)
 - `5.25.x` Releases - [5.25.0](#5250)
 - `5.24.x` Releases - [5.24.0](#5240) | [5.24.1](#5241)
 - `5.23.x` Releases - [5.23.0](#5230)
@@ -97,12 +98,42 @@ GRDB adheres to [Semantic Versioning](https://semver.org/), with one exception: 
 
 ---
 
+## 6.0.0
+
+Released September 9, 2022 &bull; [diff](https://github.com/groue/GRDB.swift/compare/v6.0.0-beta.4...v6.0.0)
+
+- **New**: Bump custom SQLite builds v3.39.3
+- **Fixed**: [#1274](https://github.com/groue/GRDB.swift/discussions/1274) Fixed a bug with HasManyThrough associations when the "through" association has the same association key as the association itself.
+- **Fixed**: [#1275](https://github.com/groue/GRDB.swift/issues/1275) Enhance error message for some requests involving associations on common table expressions.
+- **Fixed**: [#1276](https://github.com/groue/GRDB.swift/issues/1276) Fix build error with Xcode 14.0 RC (14A309)
+- **Breaking Change**: Request methods that accept a closure with a `Database` argument have been renamed with the `WhenConnected` suffix: `request.filterWhenConnected { db in ... }`, etc. 
+
+## 6.0.0-beta.4
+
+Released August 28, 2022 &bull; [diff](https://github.com/groue/GRDB.swift/compare/v6.0.0-beta.3...v6.0.0-beta.4)
+
+- **New**: [#1271](https://github.com/groue/GRDB.swift/pull/1271) by [@groue](https://github.com/groue): Bump custom SQLite builds v3.39.2
+- **New**: [SQLITE_OPEN_EXRESCODE](https://www.sqlite.org/c3ref/open.html), when available, exposes [extended result codes](README.md#databaseerror) when opening a database connection.
+- **Fixed**: [PRAGMA table_list](https://www.sqlite.org/pragma.html#pragma_table_list), when available, makes it possible for GRDB to detect [WITHOUT ROWID](https://www.sqlite.org/withoutrowid.html) tables without [polluting the SQLite error log](https://github.com/groue/GRDB.swift/issues/945).
+- **Breaking Change**: The`GRDB.xcodeproj` or `GRDBCustom.xcodeproj` projects now define cross-platforms targets.
+- **Documentation Update**: [Migrating From GRDB 5 to GRDB 6](Documentation/GRDB6MigrationGuide.md) describes how to update applications that directly embed the `GRDB.xcodeproj` or `GRDBCustom.xcodeproj` project.
+- **Documentation Update**: [Custom SQLite Builds](CustomSQLiteBuilds.md) was updated for the new cross-platform target defined by the `GRDBCustom.xcodeproj` project.
+
+## 6.0.0-beta.3
+
+Released August 25, 2022 &bull; [diff](https://github.com/groue/GRDB.swift/compare/v6.0.0-beta.2...v6.0.0-beta.3)
+
+- **Fix**: [#1268](https://github.com/groue/GRDB.swift/pull/1268) by [@groue](https://github.com/groue): Fix SQL generation of CHECK constraints
+- **Breaking Change**: The `Column` type is no longer `Equatable`
+- **Documentation Update**: [Migrating From GRDB 5 to GRDB 6](Documentation/GRDB6MigrationGuide.md) describes in detail how to update records that customize their persistence methods.
+- **Documentation Update**: The [Single-Row Tables](Documentation/SingleRowTables.md) guide was updated for the new persistence callbacks.
+
 ## 6.0.0-beta.2
 
 Released August 23, 2022 &bull; [diff](https://github.com/groue/GRDB.swift/compare/v6.0.0-beta...v6.0.0-beta.2)
 
 - **New**: Extended UPSERT apis with the ability to define the conflict target, and the assignments performed in case of conflicts.
-- **Documentation**: A new [Upsert](README.md#upsert) chapter describes upserts in detail.
+- **Documentation Update**: A new [Upsert](README.md#upsert) chapter describes upserts in detail.
 
 ## 6.0.0-beta
 
@@ -158,6 +189,12 @@ Upgrading your app can bring improvements: check [Migrating From GRDB 5 to GRDB 
     - The `DatabaseRegionObservation.extent` property was removed.
     - The `statement` property of database cursors was replaced with read-only properties such as `sql` or `columnNames`.
     - The `Database.afterNextTransactionCommit(_:)` method was renamed `Database.afterNextTransaction(onCommit:onRollback:)`, and is now able to report rollbacks as well as commits.
+
+## 5.26.1
+
+Released September 8, 2022 &bull; [diff](https://github.com/groue/GRDB.swift/compare/v5.26.0...v5.26.1)
+
+- **Fixed**: [#1276](https://github.com/groue/GRDB.swift/issues/1276) Fix build error with Xcode 14.0 RC (14A309)
 
 ## 5.26.0
 

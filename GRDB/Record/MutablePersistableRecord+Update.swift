@@ -28,20 +28,24 @@ extension MutablePersistableRecord {
     ///   PersistenceError.recordNotFound is thrown if the primary key does not
     ///   match any row in the database.
     @inlinable // allow specialization so that empty callbacks are removed
-    public func update(
+    public func update<Columns>(
         _ db: Database,
         onConflict conflictResolution: Database.ConflictResolution? = nil,
-        columns: some Sequence<String>)
+        columns: Columns)
     throws
+    where Columns: Sequence, Columns.Element == String
     {
         try willSave(db)
         
-        var updated: PersistenceSuccess!
+        var updated: PersistenceSuccess?
         try aroundSave(db) {
             updated = try updateWithCallbacks(db, onConflict: conflictResolution, columns: Set(columns))
-            return updated
+            return updated!
         }
         
+        guard let updated else {
+            try persistenceCallbackMisuse("aroundSave")
+        }
         didSave(updated)
     }
     
@@ -54,11 +58,12 @@ extension MutablePersistableRecord {
     ///   PersistenceError.recordNotFound is thrown if the primary key does not
     ///   match any row in the database.
     @inlinable // allow specialization so that empty callbacks are removed
-    public func update(
+    public func update<Columns>(
         _ db: Database,
         onConflict conflictResolution: Database.ConflictResolution? = nil,
-        columns: some Sequence<some ColumnExpression>)
+        columns: Columns)
     throws
+    where Columns: Sequence, Columns.Element: ColumnExpression
     {
         try update(db, onConflict: conflictResolution, columns: columns.map(\.name))
     }
@@ -280,31 +285,34 @@ extension MutablePersistableRecord {
     ///   match any row in the database.
     /// - precondition: `selection` is not empty.
     @inlinable // allow specialization so that empty callbacks are removed
-    public func updateAndFetch<T>(
+    public func updateAndFetch<T, Columns>(
         _ db: Database,
         onConflict conflictResolution: Database.ConflictResolution? = nil,
-        columns: some Sequence<String>,
+        columns: Columns,
         selection: [any SQLSelectable],
         fetch: (Statement) throws -> T)
     throws -> T
+    where Columns: Sequence, Columns.Element == String
     {
         GRDBPrecondition(!selection.isEmpty, "Invalid empty selection")
         
         try willSave(db)
         
-        var updated: PersistenceSuccess!
-        var returned: T!
+        var success: (updated: PersistenceSuccess, returned: T)?
         try aroundSave(db) {
-            (updated, returned) = try updateAndFetchWithCallbacks(
+            success = try updateAndFetchWithCallbacks(
                 db, onConflict: conflictResolution,
                 columns: Set(columns),
                 selection: selection,
                 fetch: fetch)
-            return updated
+            return success!.updated
         }
         
-        didSave(updated)
-        return returned
+        guard let success else {
+            try persistenceCallbackMisuse("aroundSave")
+        }
+        didSave(success.updated)
+        return success.returned
     }
     
     /// Executes an `UPDATE ... RETURNING ...` statement on the provided
@@ -333,13 +341,14 @@ extension MutablePersistableRecord {
     ///   match any row in the database.
     /// - precondition: `selection` is not empty.
     @inlinable // allow specialization so that empty callbacks are removed
-    public func updateAndFetch<T>(
+    public func updateAndFetch<T, Columns>(
         _ db: Database,
         onConflict conflictResolution: Database.ConflictResolution? = nil,
-        columns: some Sequence<some ColumnExpression>,
+        columns: Columns,
         selection: [any SQLSelectable],
         fetch: (Statement) throws -> T)
     throws -> T
+    where Columns: Sequence, Columns.Element: ColumnExpression
     {
         try updateAndFetch(
             db, onConflict: conflictResolution,
@@ -553,31 +562,34 @@ extension MutablePersistableRecord {
     /// - precondition: `selection` is not empty.
     @inlinable // allow specialization so that empty callbacks are removed
     @available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) // SQLite 3.35.0+
-    public func updateAndFetch<T>(
+    public func updateAndFetch<T, Columns>(
         _ db: Database,
         onConflict conflictResolution: Database.ConflictResolution? = nil,
-        columns: some Sequence<String>,
+        columns: Columns,
         selection: [any SQLSelectable],
         fetch: (Statement) throws -> T)
     throws -> T
+    where Columns: Sequence, Columns.Element == String
     {
         GRDBPrecondition(!selection.isEmpty, "Invalid empty selection")
         
         try willSave(db)
         
-        var updated: PersistenceSuccess!
-        var returned: T!
+        var success: (updated: PersistenceSuccess, returned: T)?
         try aroundSave(db) {
-            (updated, returned) = try updateAndFetchWithCallbacks(
+            success = try updateAndFetchWithCallbacks(
                 db, onConflict: conflictResolution,
                 columns: Set(columns),
                 selection: selection,
                 fetch: fetch)
-            return updated
+            return success!.updated
         }
         
-        didSave(updated)
-        return returned
+        guard let success else {
+            try persistenceCallbackMisuse("aroundSave")
+        }
+        didSave(success.updated)
+        return success.returned
     }
     
     /// Executes an `UPDATE ... RETURNING ...` statement on the provided
@@ -607,13 +619,14 @@ extension MutablePersistableRecord {
     /// - precondition: `selection` is not empty.
     @inlinable // allow specialization so that empty callbacks are removed
     @available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) // SQLite 3.35.0+
-    public func updateAndFetch<T>(
+    public func updateAndFetch<T, Columns>(
         _ db: Database,
         onConflict conflictResolution: Database.ConflictResolution? = nil,
-        columns: some Sequence<some ColumnExpression>,
+        columns: Columns,
         selection: [any SQLSelectable],
         fetch: (Statement) throws -> T)
     throws -> T
+    where Columns: Sequence, Columns.Element: ColumnExpression
     {
         try updateAndFetch(
             db, onConflict: conflictResolution,
@@ -777,19 +790,21 @@ extension MutablePersistableRecord {
     {
         try willUpdate(db, columns: columns)
         
-        var updated: PersistenceSuccess!
-        var returned: T!
+        var success: (updated: PersistenceSuccess, returned: T)?
         try aroundUpdate(db, columns: columns) {
-            (updated, returned) = try updateAndFetchWithoutCallbacks(
+            success = try updateAndFetchWithoutCallbacks(
                 db, onConflict: conflictResolution,
                 columns: columns,
                 selection: selection,
                 fetch: fetch)
-            return updated
+            return success!.updated
         }
         
-        didUpdate(updated)
-        return (updated, returned)
+        guard let success else {
+            try persistenceCallbackMisuse("aroundUpdate")
+        }
+        didUpdate(success.updated)
+        return success
     }
     
     /// Executes an `UPDATE` statement, with `RETURNING` clause if `selection`
