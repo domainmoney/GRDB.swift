@@ -103,7 +103,9 @@ public final class DatabasePool: DatabaseWriter {
         // Be a nice iOS citizen, and don't consume too much memory
         // See https://github.com/groue/GRDB.swift/#memory-management
         #if os(iOS)
-        setupMemoryManagement()
+        if configuration.automaticMemoryManagement {
+            setupMemoryManagement()
+        }
         #endif
     }
     
@@ -154,34 +156,55 @@ public final class DatabasePool: DatabaseWriter {
         
         return configuration
     }
-    
-    /// Blocks the current thread until all database connections have
-    /// executed the *body* block.
-    fileprivate func forEachConnection(_ body: (Database) -> Void) {
-        writer.sync(body)
-        readerPool?.forEach { $0.sync(body) }
-    }
 }
 
-#if swift(>=5.6) && canImport(_Concurrency)
 // @unchecked because of databaseSnapshotCount and readerPool
 extension DatabasePool: @unchecked Sendable { }
-#endif
 
 extension DatabasePool {
     
     // MARK: - Memory management
     
-    /// Free as much memory as possible.
+    /// Frees as much memory as possible, by disposing non-essential memory from
+    /// the writer connection, and closing all reader connections.
     ///
-    /// This method blocks the current thread until all database accesses
-    /// are completed.
+    /// This method is synchronous, and blocks the current thread until all
+    /// database accesses are completed.
+    ///
+    /// - warning: This method can prevent concurrent reads from executing,
+    ///   until it returns. Prefer ``releaseMemoryEventually()`` if you intend
+    ///   to keep on using the database while releasing memory.
     public func releaseMemory() {
         // Release writer memory
         writer.sync { $0.releaseMemory() }
-        // Release readers memory by closing all connections
+        
+        // Release readers memory by closing all connections.
+        //
+        // We must use a barrier in order to guarantee that memory has been
+        // freed (reader connections closed) when the method exits, as
+        // documented.
+        //
+        // Without the barrier, connections would only close _eventually_ (after
+        // their eventual concurrent jobs have completed).
         readerPool?.barrier {
             readerPool?.removeAll()
+        }
+    }
+    
+    /// Eventually frees as much memory as possible, by disposing non-essential
+    /// memory from the writer connection, and closing all reader connections.
+    ///
+    /// Unlike ``releaseMemory()``, this method does not prevent concurrent
+    /// database accesses when it is executing. But it does not notify when
+    /// non-essential memory has been freed.
+    public func releaseMemoryEventually() {
+        // Release readers memory by eventually closing all reader connections
+        // (they will close after their current jobs have completed).
+        readerPool?.removeAll()
+        
+        // Release writer memory eventually.
+        writer.async { db in
+            db.releaseMemory()
         }
     }
     
@@ -191,20 +214,15 @@ extension DatabasePool {
     /// as much memory as possible.
     private func setupMemoryManagement() {
         let center = NotificationCenter.default
-        
-        // Use raw notification names because of
-        // FB9801372 (UIApplication.didReceiveMemoryWarningNotification should not be declared @MainActor)
-        // TODO: Reuse UIApplication.didReceiveMemoryWarningNotification when possible.
-        // TODO: Reuse UIApplication.didEnterBackgroundNotification when possible.
         center.addObserver(
             self,
             selector: #selector(DatabasePool.applicationDidReceiveMemoryWarning(_:)),
-            name: NSNotification.Name(rawValue: "UIApplicationDidReceiveMemoryWarningNotification"),
+            name: UIApplication.didReceiveMemoryWarningNotification,
             object: nil)
         center.addObserver(
             self,
             selector: #selector(DatabasePool.applicationDidEnterBackground(_:)),
-            name: NSNotification.Name(rawValue: "UIApplicationDidEnterBackgroundNotification"),
+            name: UIApplication.didEnterBackgroundNotification,
             object: nil)
     }
     
@@ -216,12 +234,20 @@ extension DatabasePool {
         
         let task: UIBackgroundTaskIdentifier = application.beginBackgroundTask(expirationHandler: nil)
         if task == .invalid {
-            // Perform releaseMemory() synchronously.
+            // Release memory synchronously
             releaseMemory()
         } else {
-            // Perform releaseMemory() asynchronously.
-            DispatchQueue.global().async {
-                self.releaseMemory()
+            // Release memory eventually.
+            //
+            // We don't know when reader connections will be closed (because
+            // they may be currently in use), so we don't quite know when
+            // reader memory will be freed (which would be the ideal timing for
+            // ending our background task).
+            //
+            // So let's just end the background task after the writer connection
+            // has freed its memory. That's better than nothing.
+            releaseMemoryEventually()
+            writer.async { _ in
                 application.endBackgroundTask(task)
             }
         }
@@ -229,9 +255,7 @@ extension DatabasePool {
     
     @objc
     private func applicationDidReceiveMemoryWarning(_ notification: NSNotification) {
-        DispatchQueue.global().async {
-            self.releaseMemory()
-        }
+        releaseMemoryEventually()
     }
     #endif
 }
@@ -319,7 +343,7 @@ extension DatabasePool: DatabaseReader {
     @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func read<T>(_ value: (Database) throws -> T) throws -> T {
         GRDBPrecondition(currentReader == nil, "Database methods are not reentrant.")
-        guard let readerPool = readerPool else {
+        guard let readerPool else {
             throw DatabaseError.connectionIsClosed()
         }
         return try readerPool.get { reader in
@@ -333,7 +357,7 @@ extension DatabasePool: DatabaseReader {
     }
     
     public func asyncRead(_ value: @escaping (Result<Database, Error>) -> Void) {
-        guard let readerPool = self.readerPool else {
+        guard let readerPool else {
             value(.failure(DatabaseError(resultCode: .SQLITE_MISUSE, message: "Connection is closed")))
             return
         }
@@ -365,7 +389,7 @@ extension DatabasePool: DatabaseReader {
     @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func unsafeRead<T>(_ value: (Database) throws -> T) throws -> T {
         GRDBPrecondition(currentReader == nil, "Database methods are not reentrant.")
-        guard let readerPool = readerPool else {
+        guard let readerPool else {
             throw DatabaseError.connectionIsClosed()
         }
         return try readerPool.get { reader in
@@ -377,7 +401,7 @@ extension DatabasePool: DatabaseReader {
     }
     
     public func asyncUnsafeRead(_ value: @escaping (Result<Database, Error>) -> Void) {
-        guard let readerPool = self.readerPool else {
+        guard let readerPool else {
             value(.failure(DatabaseError(resultCode: .SQLITE_MISUSE, message: "Connection is closed")))
             return
         }
@@ -408,7 +432,7 @@ extension DatabasePool: DatabaseReader {
         if let reader = currentReader {
             return try reader.reentrantSync(value)
         } else {
-            guard let readerPool = readerPool else {
+            guard let readerPool else {
                 throw DatabaseError.connectionIsClosed()
             }
             return try readerPool.get { reader in
@@ -498,7 +522,7 @@ extension DatabasePool: DatabaseReader {
         let isolationSemaphore = DispatchSemaphore(value: 0)
         
         do {
-            guard let readerPool = readerPool else {
+            guard let readerPool else {
                 throw DatabaseError.connectionIsClosed()
             }
             let (reader, releaseReader) = try readerPool.get()
@@ -591,7 +615,7 @@ extension DatabasePool: DatabaseReader {
     /// Returns a reader that can be used from the current dispatch queue,
     /// if any.
     private var currentReader: SerializedDatabase? {
-        guard let readerPool = readerPool else {
+        guard let readerPool else {
             return nil
         }
         
@@ -622,17 +646,22 @@ extension DatabasePool: DatabaseReader {
     }
     
     @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
-    public func barrierWriteWithoutTransaction<T>(_ updates: (Database) throws -> T) rethrows -> T {
-        // TODO: throw instead of crashing when the database is closed
-        try readerPool!.barrier {
+    public func barrierWriteWithoutTransaction<T>(_ updates: (Database) throws -> T) throws -> T {
+        guard let readerPool else {
+            throw DatabaseError.connectionIsClosed()
+        }
+        return try readerPool.barrier {
             try writer.sync(updates)
         }
     }
     
-    public func asyncBarrierWriteWithoutTransaction(_ updates: @escaping (Database) -> Void) {
-        // TODO: throw instead of crashing when the database is closed
-        readerPool!.asyncBarrier {
-            self.writer.sync(updates)
+    public func asyncBarrierWriteWithoutTransaction(_ updates: @escaping (Result<Database, Error>) -> Void) {
+        guard let readerPool else {
+            updates(.failure(DatabaseError.connectionIsClosed()))
+            return
+        }
+        readerPool.asyncBarrier {
+            self.writer.sync { updates(.success($0)) }
         }
     }
     
@@ -696,7 +725,7 @@ extension DatabasePool: DatabaseReader {
         observation: ValueObservation<Reducer>,
         scheduling scheduler: ValueObservationScheduler,
         onChange: @escaping (Reducer.Value) -> Void)
-    -> DatabaseCancellable
+    -> AnyDatabaseCancellable
     {
         if configuration.readonly {
             // The easy case: the database does not change
@@ -727,7 +756,7 @@ extension DatabasePool: DatabaseReader {
         observation: ValueObservation<Reducer>,
         scheduling scheduler: ValueObservationScheduler,
         onChange: @escaping (Reducer.Value) -> Void)
-    -> DatabaseCancellable
+    -> AnyDatabaseCancellable
     {
         assert(!configuration.readonly, "Use _addReadOnly(observation:) instead")
         assert(!observation.requiresWriteAccess, "Use _addWriteOnly(observation:) instead")

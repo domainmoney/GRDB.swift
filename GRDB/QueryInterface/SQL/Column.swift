@@ -52,12 +52,10 @@ extension ColumnExpression {
     }
 }
 
-#if compiler(>=5.5)
 extension ColumnExpression where Self == Column {
     /// The hidden rowID column
     public static var rowID: Self { Column.rowID }
 }
-#endif
 
 /// A column in a database table.
 ///
@@ -65,7 +63,7 @@ extension ColumnExpression where Self == Column {
 /// Instead, adopt the ColumnExpression protocol.
 ///
 /// See <https://github.com/groue/GRDB.swift#the-query-interface>
-public struct Column: ColumnExpression, Equatable {
+public struct Column: ColumnExpression {
     /// The hidden rowID column
     public static let rowID = Column("rowid")
     
@@ -78,14 +76,8 @@ public struct Column: ColumnExpression, Equatable {
     }
     
     /// Creates a column given a CodingKey.
-    public init(_ codingKey: CodingKey) {
+    public init(_ codingKey: some CodingKey) {
         self.name = codingKey.stringValue
-    }
-    
-    // Avoid a wrong resolution when BUILD_LIBRARY_FOR_DISTRIBUTION is set
-    @_disfavoredOverload
-    public static func == (lhs: Column, rhs: Column) -> Bool {
-        lhs.name == rhs.name
     }
 }
 

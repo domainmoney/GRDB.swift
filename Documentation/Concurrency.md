@@ -137,7 +137,7 @@ try dbQueue.write { db in
 <details>
     <summary><b>Swift concurrency</b> (async/await)</summary>
 
-[**:fire: EXPERIMENTAL**](../README.md#what-are-experimental-features) GRDB support for Swift concurrency requires Xcode 13.3.1+.
+[**:fire: EXPERIMENTAL**](../README.md#what-are-experimental-features)
 
 ```swift
 let playerCount = try await dbQueue.read { db in
@@ -506,7 +506,7 @@ try snapshot2.read { db in
 }
 ```
 
-> :point_up: **Note**: snapshots currently serialize all database accesses. In the future, snapshots may allow concurrent reads.
+> **Note**: snapshots currently serialize all database accesses. In the future, snapshots may allow concurrent reads.
 
 [^1]: This immutable view of the database is called [snapshot isolation](https://www.sqlite.org/isolation.html).
 

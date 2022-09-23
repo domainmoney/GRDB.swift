@@ -26,9 +26,6 @@ final class ValueWriteOnlyObserver<Writer: DatabaseWriter, Reducer: ValueReducer
     /// How to schedule observed values and errors.
     private let scheduler: ValueObservationScheduler
     
-    /// If true, database values are fetched from a read-only access.
-    private let readOnly: Bool
-    
     /// Configures the tracked database region.
     private let trackingMode: ValueObservationTrackingMode
     
@@ -79,8 +76,33 @@ final class ValueWriteOnlyObserver<Writer: DatabaseWriter, Reducer: ValueReducer
         /// The observed DatabaseWriter.
         let writer: Writer
         
-        /// The function that fetches database values.
-        let fetch: (Database) throws -> Reducer.Fetched
+        /// If true, database values are fetched from a read-only access.
+        private let readOnly: Bool
+        
+        /// A reducer that fetches database values.
+        private let reducer: Reducer
+        
+        init(writer: Writer, readOnly: Bool, reducer: Reducer) {
+            self.writer = writer
+            self.readOnly = readOnly
+            self.reducer = reducer
+        }
+        
+        func fetch(_ db: Database) throws -> Reducer.Fetched {
+            try db.isolated(readOnly: readOnly) {
+                try reducer._fetch(db)
+            }
+        }
+        
+        func fetchRecordingObservedRegion(_ db: Database) throws -> (Reducer.Fetched, DatabaseRegion) {
+            var region = DatabaseRegion()
+            let fetchedValue = try db.isolated(readOnly: readOnly) {
+                try db.recordingSelection(&region) {
+                    try reducer._fetch(db)
+                }
+            }
+            return try (fetchedValue, region.observableRegion(db))
+        }
     }
     
     /// Ability to notify observation events
@@ -128,15 +150,15 @@ final class ValueWriteOnlyObserver<Writer: DatabaseWriter, Reducer: ValueReducer
     {
         // Configuration
         self.scheduler = scheduler
-        self.readOnly = readOnly
         self.trackingMode = trackingMode
         
         // State
         self.databaseAccess = DatabaseAccess(
             writer: writer,
+            readOnly: readOnly,
             // ValueReducer semantics guarantees that reducer._fetch
             // is independent from the reducer state
-            fetch: reducer._fetch)
+            reducer: reducer)
         self.notificationCallbacks = NotificationCallbacks(events: events, onChange: onChange)
         self.reducer = reducer
         self.reduceQueue = DispatchQueue(
@@ -151,12 +173,11 @@ final class ValueWriteOnlyObserver<Writer: DatabaseWriter, Reducer: ValueReducer
 
 extension ValueWriteOnlyObserver {
     // Starts the observation
-    func start() -> DatabaseCancellable {
-        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-        let (notificationCallbacksOpt, databaseAccessOpt) = lock.synchronized {
-            (self.notificationCallbacks, self.databaseAccess)
+    func start() -> AnyDatabaseCancellable {
+        let (notificationCallbacks, writer) = lock.synchronized {
+            (self.notificationCallbacks, self.databaseAccess?.writer)
         }
-        guard let notificationCallbacks = notificationCallbacksOpt, let writer = databaseAccessOpt?.writer else {
+        guard let notificationCallbacks, let writer else {
             // Likely a GRDB bug: during a synchronous start, user is not
             // able to cancel observation.
             fatalError("can't start a cancelled or failed observation")
@@ -208,8 +229,8 @@ extension ValueWriteOnlyObserver {
             }
             
             // Reduce
-            return reduceQueue.sync {
-                guard let initialValue = reducer._value(fetchedValue) else {
+            return try reduceQueue.sync {
+                guard let initialValue = try reducer._value(fetchedValue) else {
                     fatalError("Broken contract: reducer has no initial value")
                 }
                 
@@ -242,16 +263,23 @@ extension ValueWriteOnlyObserver {
                     let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
                     guard isNotifying else { return /* Cancelled */ }
                     
-                    guard let initialValue = self.reducer._value(fetchedValue) else {
-                        fatalError("Broken contract: reducer has no initial value")
-                    }
-                    
-                    // Notify
-                    self.scheduler.schedule {
-                        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-                        let onChangeOpt = self.lock.synchronized { self.notificationCallbacks?.onChange }
-                        guard let onChange = onChangeOpt else { return /* Cancelled */ }
-                        onChange(initialValue)
+                    do {
+                        guard let initialValue = try self.reducer._value(fetchedValue) else {
+                            fatalError("Broken contract: reducer has no initial value")
+                        }
+                        
+                        // Notify
+                        self.scheduler.schedule {
+                            let onChange = self.lock.synchronized { self.notificationCallbacks?.onChange }
+                            guard let onChange else { return /* Cancelled */ }
+                            onChange(initialValue)
+                        }
+                    } catch {
+                        let writer = self.lock.synchronized { self.databaseAccess?.writer }
+                        writer?.asyncWriteWithoutTransaction { db in
+                            self.stopDatabaseObservation(db)
+                        }
+                        self.notifyError(error)
                     }
                 }
             } catch {
@@ -270,19 +298,16 @@ extension ValueWriteOnlyObserver {
     /// single database access, we are sure that no concurrent write can happen
     /// during the initial fetch, and that we won't miss any future change.
     private func fetchAndStartObservation(_ db: Database) throws -> Reducer.Fetched? {
-        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-        let (eventsOpt, fetchOpt) = lock.synchronized {
-            (notificationCallbacks?.events, databaseAccess?.fetch)
+        let (events, databaseAccess) = lock.synchronized {
+            (notificationCallbacks?.events, self.databaseAccess)
         }
-        guard let events = eventsOpt, let fetch = fetchOpt else {
+        guard let events, let databaseAccess else {
             return nil /* Cancelled */
         }
         
         switch trackingMode {
         case let .constantRegion(regions):
-            let fetchedValue = try db.isolated(readOnly: readOnly) {
-                try fetch(db)
-            }
+            let fetchedValue = try databaseAccess.fetch(db)
             let region = try DatabaseRegion.union(regions)(db)
             let observedRegion = try region.observableRegion(db)
             events.willTrackRegion?(observedRegion)
@@ -291,13 +316,7 @@ extension ValueWriteOnlyObserver {
             
         case .constantRegionRecordedFromSelection,
                 .nonConstantRegionRecordedFromSelection:
-            var region = DatabaseRegion()
-            let fetchedValue = try db.recordingSelection(&region) {
-                try db.isolated(readOnly: readOnly) {
-                    try fetch(db)
-                }
-            }
-            let observedRegion = try region.observableRegion(db)
+            let (fetchedValue, observedRegion) = try databaseAccess.fetchRecordingObservedRegion(db)
             events.willTrackRegion?(observedRegion)
             startObservation(db, observedRegion: observedRegion)
             return fetchedValue
@@ -338,13 +357,12 @@ extension ValueWriteOnlyObserver: TransactionObserver {
         // Reset the isModified flag until next transaction
         observationState.isModified = false
         
-        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
         // Ignore transaction unless we are still notifying database events, and
         // we can still fetch fresh values.
-        let (eventsOpt, fetchOpt) = lock.synchronized {
-            (notificationCallbacks?.events, databaseAccess?.fetch)
+        let (events, databaseAccess) = lock.synchronized {
+            (notificationCallbacks?.events, self.databaseAccess)
         }
-        guard let events = eventsOpt, let fetch = fetchOpt else { return /* Cancelled */ }
+        guard let events, let databaseAccess else { return /* Cancelled */ }
         
         // Notify
         events.databaseDidChange?()
@@ -356,19 +374,11 @@ extension ValueWriteOnlyObserver: TransactionObserver {
             switch trackingMode {
             case .constantRegion, .constantRegionRecordedFromSelection:
                 // Tracked region is already known. Fetch only.
-                fetchedValue = try db.isolated(readOnly: readOnly) {
-                    try fetch(db)
-                }
+                fetchedValue = try databaseAccess.fetch(db)
             case .nonConstantRegionRecordedFromSelection:
                 // Fetch and update the tracked region.
-                var region = DatabaseRegion()
-                fetchedValue = try db.recordingSelection(&region) {
-                    try db.isolated(readOnly: readOnly) {
-                        try fetch(db)
-                    }
-                }
-                
-                let observedRegion = try region.observableRegion(db)
+                let (value, observedRegion) = try databaseAccess.fetchRecordingObservedRegion(db)
+                fetchedValue = value
                 
                 // Don't spam the user with region tracking events: wait for an actual change
                 if let willTrackRegion = events.willTrackRegion, observedRegion != observationState.region {
@@ -389,16 +399,23 @@ extension ValueWriteOnlyObserver: TransactionObserver {
                 let isNotifying = self.lock.synchronized { self.notificationCallbacks != nil }
                 guard isNotifying else { return /* Cancelled */ }
                 
-                let value = self.reducer._value(fetchedValue)
-                
-                // Notify value
-                if let value = value {
-                    self.scheduler.schedule {
-                        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-                        let onChangeOpt = self.lock.synchronized { self.notificationCallbacks?.onChange }
-                        guard let onChange = onChangeOpt else { return /* Cancelled */ }
-                        onChange(value)
+                do {
+                    let value = try self.reducer._value(fetchedValue)
+                    
+                    // Notify value
+                    if let value = value {
+                        self.scheduler.schedule {
+                            let onChange = self.lock.synchronized { self.notificationCallbacks?.onChange }
+                            guard let onChange else { return /* Cancelled */ }
+                            onChange(value)
+                        }
                     }
+                } catch {
+                    let writer = self.lock.synchronized { self.databaseAccess?.writer }
+                    writer?.asyncWriteWithoutTransaction { db in
+                        self.stopDatabaseObservation(db)
+                    }
+                    self.notifyError(error)
                 }
             }
         } catch {
@@ -417,21 +434,20 @@ extension ValueWriteOnlyObserver: TransactionObserver {
 
 extension ValueWriteOnlyObserver: DatabaseCancellable {
     func cancel() {
-        // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
         // Notify cancellation
-        let (eventsOpt, writerOpt): (ValueObservationEvents?, Writer?) = lock.synchronized {
+        let (events, writer) = lock.synchronized {
             let events = notificationCallbacks?.events
             notificationCallbacks = nil
             return (events, databaseAccess?.writer)
         }
         
-        guard let events = eventsOpt else { return /* Cancelled or failed */ }
+        guard let events else { return /* Cancelled or failed */ }
         events.didCancel?()
         
         // Stop observing the database
         // Do it asynchronously, so that we do not block the current thread:
         // cancellation may be triggered while a long write access is executing.
-        guard let writer = writerOpt else { return /* Failed */ }
+        guard let writer else { return /* Failed */ }
         writer.asyncWriteWithoutTransaction { db in
             self.stopDatabaseObservation(db)
         }
@@ -439,13 +455,12 @@ extension ValueWriteOnlyObserver: DatabaseCancellable {
     
     func notifyError(_ error: Error) {
         scheduler.schedule {
-            // TODO: [SR-214] remove -Opt suffix when we only support Xcode 12.5.1+
-            let eventsOpt: ValueObservationEvents? = self.lock.synchronized {
+            let events = self.lock.synchronized {
                 let events = self.notificationCallbacks?.events
                 self.notificationCallbacks = nil
                 return events
             }
-            guard let events = eventsOpt else { return /* Cancelled */ }
+            guard let events else { return /* Cancelled */ }
             events.didFail?(error)
         }
     }
