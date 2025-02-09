@@ -827,7 +827,7 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue(filename: dbName)
         
         try dbPool.write { db in
-            try db.create(table: "t") { $0.column("id", .integer).primaryKey() }
+            try db.create(table: "t") { $0.primaryKey("id", .integer) }
             try db.execute(sql: "INSERT INTO t DEFAULT VALUES")
         }
         
@@ -1074,85 +1074,17 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
         try test(qos: .userInitiated)
     }
     
-    // MARK: - ConcurrentRead
-    
-    func testConcurrentReadOpensATransaction() throws {
-        let dbPool = try makeDatabasePool()
-        let future = dbPool.writeWithoutTransaction { db in
-            dbPool.concurrentRead { db in
-                XCTAssertTrue(db.isInsideTransaction)
-                do {
-                    try db.execute(sql: "BEGIN DEFERRED TRANSACTION")
-                    XCTFail("Expected error")
-                } catch {
-                }
-            }
-        }
-        try future.wait()
-    }
-    
-    func testConcurrentReadOutsideOfTransaction() throws {
-        let dbPool = try makeDatabasePool()
-        try dbPool.write { db in
-            try db.create(table: "persons") { t in
-                t.column("id", .integer).primaryKey()
-            }
-        }
-        
-        // Writer                       Reader
-        // dbPool.writeWithoutTransaction {
-        // >
-        //                              dbPool.concurrentRead {
-        //                              <
-        // INSERT INTO items (id) VALUES (NULL)
-        // >
-        let s1 = DispatchSemaphore(value: 0)
-        // }                            SELECT COUNT(*) FROM persons -> 0
-        //                              <
-        //                              }
-        
-        let future: DatabaseFuture<Int> = try dbPool.writeWithoutTransaction { db in
-            let future: DatabaseFuture<Int> = dbPool.concurrentRead { db in
-                _ = s1.wait(timeout: .distantFuture)
-                return try! Int.fetchOne(db, sql: "SELECT COUNT(*) FROM persons")!
-            }
-            try db.execute(sql: "INSERT INTO persons DEFAULT VALUES")
-            s1.signal()
-            return future
-        }
-        XCTAssertEqual(try future.wait(), 0)
-    }
-    
-    func testConcurrentReadError() throws {
-        // Necessary for this test to run as quickly as possible
-        dbConfiguration.readonlyBusyMode = .immediateError
-        let dbPool = try makeDatabasePool()
-        try dbPool.writeWithoutTransaction { db in
-            try db.execute(sql: "PRAGMA locking_mode=EXCLUSIVE")
-            try db.execute(sql: "CREATE TABLE items (id INTEGER PRIMARY KEY)")
-            let future = dbPool.concurrentRead { db in
-                fatalError("Should not run")
-            }
-            do {
-                try future.wait()
-            } catch let error as DatabaseError {
-                XCTAssertEqual(error.resultCode, .SQLITE_BUSY)
-                XCTAssertEqual(error.message!, "database is locked")
-            }
-        }
-    }
-    
     // MARK: - AsyncConcurrentRead
     
     func testAsyncConcurrentReadOpensATransaction() throws {
         let dbPool = try makeDatabasePool()
-        var isInsideTransaction: Bool? = nil
+        let isInsideTransactionMutex: Mutex<Bool?> = Mutex(nil)
         let expectation = self.expectation(description: "read")
         dbPool.writeWithoutTransaction { db in
             dbPool.asyncConcurrentRead { dbResult in
                 do {
                     let db = try dbResult.get()
-                    isInsideTransaction = db.isInsideTransaction
+                    isInsideTransactionMutex.store(db.isInsideTransaction)
                     do {
                         try db.execute(sql: "BEGIN DEFERRED TRANSACTION")
                         XCTFail("Expected error")
@@ -1165,21 +1097,21 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
             }
         }
         waitForExpectations(timeout: 1, handler: nil)
-        XCTAssertEqual(isInsideTransaction, true)
+        XCTAssertEqual(isInsideTransactionMutex.load(), true)
     }
     
     func testAsyncConcurrentReadOutsideOfTransaction() throws {
         let dbPool = try makeDatabasePool()
         try dbPool.write { db in
             try db.create(table: "persons") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
             }
         }
         
         // Writer                       Reader
         // dbPool.writeWithoutTransaction {
         // >
-        //                              dbPool.concurrentRead {
+        //                              dbPool.asyncConcurrentRead {
         //                              <
         // INSERT INTO items (id) VALUES (NULL)
         // >
@@ -1188,14 +1120,14 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
         //                              <
         //                              }
         
-        var count: Int? = nil
+        let countMutex: Mutex<Int?> = Mutex(nil)
         let expectation = self.expectation(description: "read")
         try dbPool.writeWithoutTransaction { db in
             dbPool.asyncConcurrentRead { dbResult in
                 do {
                     _ = s1.wait(timeout: .distantFuture)
                     let db = try dbResult.get()
-                    count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM persons")!
+                    try countMutex.store(Int.fetchOne(db, sql: "SELECT COUNT(*) FROM persons")!)
                 } catch {
                     XCTFail("Unexpected error: \(error)")
                 }
@@ -1205,14 +1137,14 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
             s1.signal()
         }
         waitForExpectations(timeout: 1, handler: nil)
-        XCTAssertEqual(count, 0)
+        XCTAssertEqual(countMutex.load(), 0)
     }
     
     func testAsyncConcurrentReadError() throws {
         // Necessary for this test to run as quickly as possible
         dbConfiguration.readonlyBusyMode = .immediateError
         let dbPool = try makeDatabasePool()
-        var readError: DatabaseError? = nil
+        let readErrorMutex: Mutex<DatabaseError?> = Mutex(nil)
         let expectation = self.expectation(description: "read")
         try dbPool.writeWithoutTransaction { db in
             try db.execute(sql: "PRAGMA locking_mode=EXCLUSIVE")
@@ -1224,12 +1156,12 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
                         XCTFail("Unexpected result: \(dbResult)")
                         return
                 }
-                readError = dbError
+                readErrorMutex.store(dbError)
                 expectation.fulfill()
             }
             waitForExpectations(timeout: 1, handler: nil)
-            XCTAssertEqual(readError!.resultCode, .SQLITE_BUSY)
-            XCTAssertEqual(readError!.message!, "database is locked")
+            XCTAssertEqual(readErrorMutex.load()!.resultCode, .SQLITE_BUSY)
+            XCTAssertEqual(readErrorMutex.load()!.message!, "database is locked")
         }
     }
     
@@ -1335,13 +1267,13 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
                 let coordinator = NSFileCoordinator(filePresenter: nil)
                 var coordinatorError: NSError?
                 var poolError: Error?
-                coordinator.coordinate(writingItemAt: dbURL, options: .forMerging, error: &coordinatorError, byAccessor: { url in
+                coordinator.coordinate(writingItemAt: dbURL, options: .forMerging, error: &coordinatorError) { url in
                     do {
                         _ = try DatabasePool(path: url.path)
                     } catch {
                         poolError = error
                     }
-                })
+                }
                 XCTAssert(poolError ?? coordinatorError == nil)
             }
         }
@@ -1349,27 +1281,27 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
     
     // MARK: - NSFileCoordinator sample code tests
     
-    // Test for sample code in Documentation/SharingADatabase.md.
+    // Test for sample code in Documentation.docc/DatabaseSharing.md.
     // This test passes if this method compiles
     private func openSharedDatabase(at databaseURL: URL) throws -> DatabasePool {
         let coordinator = NSFileCoordinator(filePresenter: nil)
         var coordinatorError: NSError?
         var dbPool: DatabasePool?
         var dbError: Error?
-        coordinator.coordinate(writingItemAt: databaseURL, options: .forMerging, error: &coordinatorError, byAccessor: { url in
+        coordinator.coordinate(writingItemAt: databaseURL, options: .forMerging, error: &coordinatorError) { url in
             do {
                 dbPool = try openDatabase(at: url)
             } catch {
                 dbError = error
             }
-        })
+        }
         if let error = dbError ?? coordinatorError {
             throw error
         }
         return dbPool!
     }
     
-    // Test for sample code in Documentation/SharingADatabase.md.
+    // Test for sample code in Documentation.docc/DatabaseSharing.md.
     // This test passes if this method compiles
     private func openDatabase(at databaseURL: URL) throws -> DatabasePool {
         let dbPool = try DatabasePool(path: databaseURL.path)
@@ -1378,27 +1310,27 @@ class DatabasePoolConcurrencyTests: GRDBTestCase {
         return dbPool
     }
     
-    // Test for sample code in Documentation/SharingADatabase.md.
+    // Test for sample code in Documentation.docc/DatabaseSharing.md.
     // This test passes if this method compiles
     private func openSharedReadOnlyDatabase(at databaseURL: URL) throws -> DatabasePool? {
         let coordinator = NSFileCoordinator(filePresenter: nil)
         var coordinatorError: NSError?
         var dbPool: DatabasePool?
         var dbError: Error?
-        coordinator.coordinate(readingItemAt: databaseURL, options: .withoutChanges, error: &coordinatorError, byAccessor: { url in
+        coordinator.coordinate(readingItemAt: databaseURL, options: .withoutChanges, error: &coordinatorError) { url in
             do {
                 dbPool = try openReadOnlyDatabase(at: url)
             } catch {
                 dbError = error
             }
-        })
+        }
         if let error = dbError ?? coordinatorError {
             throw error
         }
         return dbPool
     }
     
-    // Test for sample code in Documentation/SharingADatabase.md.
+    // Test for sample code in Documentation.docc/DatabaseSharing.md.
     // This test passes if this method compiles
     private func openReadOnlyDatabase(at databaseURL: URL) throws -> DatabasePool? {
         do {

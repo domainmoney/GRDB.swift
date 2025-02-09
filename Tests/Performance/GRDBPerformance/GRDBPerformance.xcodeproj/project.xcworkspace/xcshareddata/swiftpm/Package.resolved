@@ -1,21 +1,22 @@
 {
+  "originHash" : "8d182a38fc35b0d50c198e0cbd39dc7fa5922eae5336ff3b0c73c2d51bcba752",
   "pins" : [
     {
       "identity" : "fmdb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ccgus/fmdb.git",
       "state" : {
-        "revision" : "61e51fde7f7aab6554f30ab061cc588b28a97d04",
-        "version" : "2.7.7"
+        "revision" : "1227a3fa2b9916bfd75fe380eb45cd210e69e251",
+        "version" : "2.7.12"
       }
     },
     {
       "identity" : "realm-core",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/realm/realm-core",
+      "location" : "https://github.com/realm/realm-core.git",
       "state" : {
-        "revision" : "d97eed3ae7dff2f2e2ffbda83fa8f3b8c445c6ba",
-        "version" : "11.17.0"
+        "revision" : "15493076ad9fef22c16cc64cbfbf9e5b65c385f9",
+        "version" : "20.1.0"
       }
     },
     {
@@ -23,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/realm/realm-swift.git",
       "state" : {
-        "revision" : "7f123e48ec12926bb5080e449df360127ee0352d",
-        "version" : "10.26.0"
+        "revision" : "bae6c4be7df169fdb047d0ad63f902c1e2665e83",
+        "version" : "20.0.1"
       }
     },
     {
@@ -32,10 +33,10 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/stephencelis/SQLite.swift.git",
       "state" : {
-        "revision" : "4d543d811ee644fa4cc4bfa0be996b4dd6ba0f54",
-        "version" : "0.13.3"
+        "revision" : "a95fc6df17d108bd99210db5e8a9bac90fe984b8",
+        "version" : "0.15.3"
       }
     }
   ],
-  "version" : 2
+  "version" : 3
 }

@@ -164,7 +164,7 @@ class FTS4TableBuilderTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             try db.create(table: "documents") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
                 t.column("content", .text)
             }
             try db.execute(sql: "INSERT INTO documents (content) VALUES (?)", arguments: ["foo"])
@@ -198,7 +198,7 @@ class FTS4TableBuilderTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.writeWithoutTransaction { db in
             try db.create(table: "documents") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
                 t.column("content", .text)
             }
             assertDidExecute(sql: "CREATE TABLE \"documents\" (\"id\" INTEGER PRIMARY KEY, \"content\" TEXT)")
@@ -215,7 +215,7 @@ class FTS4TableBuilderTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             try db.create(table: "documents") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
                 t.column("content", .text)
             }
             try db.execute(sql: "INSERT INTO documents (content) VALUES (?)", arguments: ["foo"])
@@ -244,7 +244,7 @@ class FTS4TableBuilderTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             try db.create(table: "documents") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
                 t.column("content", .text)
             }
             try db.execute(sql: "INSERT INTO documents (content) VALUES (?)", arguments: ["foo"])
@@ -272,16 +272,16 @@ class FTS4TableBuilderTests: GRDBTestCase {
     
     func testFTS4Compression() throws {
         // Based on https://github.com/groue/GRDB.swift/issues/369
-        var compressCalled = false
-        var uncompressCalled = false
+        let compressCalledMutex = Mutex(false)
+        let uncompressCalledMutex = Mutex(false)
         
         dbConfiguration.prepareDatabase { db in
             db.add(function: DatabaseFunction("zipit", argumentCount: 1, pure: true, function: { dbValues in
-                compressCalled = true
+                compressCalledMutex.store(true)
                 return dbValues[0]
             }))
             db.add(function: DatabaseFunction("unzipit", argumentCount: 1, pure: true, function: { dbValues in
-                uncompressCalled = true
+                uncompressCalledMutex.store(true)
                 return dbValues[0]
             }))
         }
@@ -296,12 +296,12 @@ class FTS4TableBuilderTests: GRDBTestCase {
             assertDidExecute(sql: "CREATE VIRTUAL TABLE \"documents\" USING fts4(content, compress=\"zipit\", uncompress=\"unzipit\")")
             
             try db.execute(sql: "INSERT INTO documents (content) VALUES (?)", arguments: ["abc"])
-            XCTAssertTrue(compressCalled)
+            XCTAssertTrue(compressCalledMutex.load())
         }
         
         try dbPool.read { db in
             _ = try Row.fetchOne(db, sql: "SELECT * FROM documents")
-            XCTAssertTrue(uncompressCalled)
+            XCTAssertTrue(uncompressCalledMutex.load())
         }
     }
 }

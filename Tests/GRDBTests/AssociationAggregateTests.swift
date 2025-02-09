@@ -46,18 +46,18 @@ class AssociationAggregateTests: GRDBTestCase {
     override func setup(_ dbWriter: some DatabaseWriter) throws {
         try dbWriter.write { db in
             try db.create(table: "team") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
                 t.column("name", .text)
             }
             try db.create(table: "player") { t in
-                t.column("id", .integer).primaryKey()
-                t.column("teamId", .integer).references("team")
+                t.primaryKey("id", .integer)
+                t.belongsTo("team")
                 t.column("name", .text)
                 t.column("score", .integer)
             }
             try db.create(table: "award") { t in
-                t.column("customPrimaryKey", .integer).primaryKey()
-                t.column("teamId", .integer).references("team")
+                t.primaryKey("customPrimaryKey", .integer)
+                t.belongsTo("team")
                 t.column("name", .text)
             }
 
@@ -1503,6 +1503,30 @@ class AssociationAggregateTests: GRDBTestCase {
                 let request = Team.annotated(with: abs(Team.players.max(Column("score"))).forKey("foo"))
                 try assertEqualSQL(db, request, """
                     SELECT "team".*, ABS(MAX("player"."score")) AS "foo" \
+                    FROM "team" \
+                    LEFT JOIN "player" ON "player"."teamId" = "team"."id" \
+                    GROUP BY "team"."id"
+                    """)
+            }
+        }
+    }
+    
+    func testCast() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.read { db in
+            do {
+                let request = Team.annotated(with: cast(Team.players.count, as: .real))
+                try assertEqualSQL(db, request, """
+                    SELECT "team".*, CAST(COUNT(DISTINCT "player"."id") AS REAL) AS "playerCount" \
+                    FROM "team" \
+                    LEFT JOIN "player" ON "player"."teamId" = "team"."id" \
+                    GROUP BY "team"."id"
+                    """)
+            }
+            do {
+                let request = Team.annotated(with: cast(Team.players.count, as: .real).forKey("foo"))
+                try assertEqualSQL(db, request, """
+                    SELECT "team".*, CAST(COUNT(DISTINCT "player"."id") AS REAL) AS "foo" \
                     FROM "team" \
                     LEFT JOIN "player" ON "player"."teamId" = "team"."id" \
                     GROUP BY "team"."id"

@@ -1,13 +1,155 @@
+// Import C SQLite functions
+#if SWIFT_PACKAGE
+import GRDBSQLite
+#elseif GRDBCIPHER
+import SQLCipher
+#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
+import SQLite3
+#endif
+
 import XCTest
 import GRDB
 
 class DatabasePoolTests: GRDBTestCase {
+    func testJournalModeConfiguration() throws {
+        do {
+            // Factory default
+            let config = Configuration()
+            let dbPool = try makeDatabasePool(filename: "factory", configuration: config)
+            let journalMode = try dbPool.read { db in
+                try String.fetchOne(db, sql: "PRAGMA journal_mode")
+            }
+            XCTAssertEqual(journalMode, "wal")
+        }
+        do {
+            // Explicit default
+            var config = Configuration()
+            config.journalMode = .default
+            let dbPool = try makeDatabasePool(filename: "default", configuration: config)
+            let journalMode = try dbPool.read { db in
+                try String.fetchOne(db, sql: "PRAGMA journal_mode")
+            }
+            XCTAssertEqual(journalMode, "wal")
+        }
+        do {
+            // Explicit wal
+            var config = Configuration()
+            config.journalMode = .wal
+            let dbPool = try makeDatabasePool(filename: "wal", configuration: config)
+            let journalMode = try dbPool.read { db in
+                try String.fetchOne(db, sql: "PRAGMA journal_mode")
+            }
+            XCTAssertEqual(journalMode, "wal")
+        }
+    }
+    
     func testDatabasePoolCreatesWalShm() throws {
-        let dbPool = try makeDatabasePool()
-        withExtendedLifetime(dbPool) {
+        let dbPool = try makeDatabasePool(filename: "test")
+        try withExtendedLifetime(dbPool) {
             let fm = FileManager()
             XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-wal"))
             XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-shm"))
+
+#if SQLITE_ENABLE_SNAPSHOT || (!GRDBCUSTOMSQLITE && !GRDBCIPHER)
+            // A non-empty wal file makes sure ValueObservation can use wal snapshots.
+            // See <https://github.com/groue/GRDB.swift/issues/1383>
+            let walURL = URL(fileURLWithPath: dbPool.path + "-wal")
+            let walSize = try walURL.resourceValues(forKeys: [.fileSizeKey]).fileSize!
+            XCTAssertGreaterThan(walSize, 0)
+#endif
+        }
+    }
+    
+    func testDatabasePoolCreatesWalShmFromNonWalDatabase() throws {
+        do {
+            let dbQueue = try makeDatabaseQueue(filename: "test")
+            try dbQueue.writeWithoutTransaction { db in
+                try db.execute(sql: "CREATE TABLE t(a)")
+            }
+        }
+        do {
+            let dbPool = try makeDatabasePool(filename: "test")
+            try withExtendedLifetime(dbPool) {
+                let fm = FileManager()
+                XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-wal"))
+                XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-shm"))
+                
+#if SQLITE_ENABLE_SNAPSHOT || (!GRDBCUSTOMSQLITE && !GRDBCIPHER)
+                // A non-empty wal file makes sure ValueObservation can use wal snapshots.
+                // See <https://github.com/groue/GRDB.swift/issues/1383>
+                let walURL = URL(fileURLWithPath: dbPool.path + "-wal")
+                let walSize = try walURL.resourceValues(forKeys: [.fileSizeKey]).fileSize!
+                XCTAssertGreaterThan(walSize, 0)
+#endif
+            }
+        }
+    }
+
+    func testDatabasePoolCreatesWalShmFromTruncatedWalFile() throws {
+        do {
+            let dbPool = try makeDatabasePool(filename: "test")
+            try dbPool.writeWithoutTransaction { db in
+                try db.execute(sql: "CREATE TABLE t(a)")
+                try db.checkpoint(.truncate)
+            }
+        }
+        do {
+            let dbPool = try makeDatabasePool(filename: "test")
+            try withExtendedLifetime(dbPool) {
+                let fm = FileManager()
+                XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-wal"))
+                XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-shm"))
+                
+#if SQLITE_ENABLE_SNAPSHOT || (!GRDBCUSTOMSQLITE && !GRDBCIPHER)
+                // A non-empty wal file makes sure ValueObservation can use wal snapshots.
+                // See <https://github.com/groue/GRDB.swift/issues/1383>
+                let walURL = URL(fileURLWithPath: dbPool.path + "-wal")
+                let walSize = try walURL.resourceValues(forKeys: [.fileSizeKey]).fileSize!
+                XCTAssertGreaterThan(walSize, 0)
+#endif
+            }
+        }
+    }
+
+    func testDatabasePoolCreatesWalShmFromIssue1383() throws {
+        let url = testBundle.url(forResource: "Issue1383", withExtension: "sqlite")!
+        // Delete files created by previous test runs
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent().appendingPathComponent("Issue1383.sqlite-wal"))
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent().appendingPathComponent("Issue1383.sqlite-shm"))
+
+        let dbPool = try DatabasePool(path: url.path)
+        try withExtendedLifetime(dbPool) {
+            let fm = FileManager()
+            XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-wal"))
+            XCTAssertTrue(fm.fileExists(atPath: dbPool.path + "-shm"))
+            
+#if SQLITE_ENABLE_SNAPSHOT || (!GRDBCUSTOMSQLITE && !GRDBCIPHER)
+            // A non-empty wal file makes sure ValueObservation can use wal snapshots.
+            // See <https://github.com/groue/GRDB.swift/issues/1383>
+            let walURL = URL(fileURLWithPath: dbPool.path + "-wal")
+            let walSize = try walURL.resourceValues(forKeys: [.fileSizeKey]).fileSize!
+            XCTAssertGreaterThan(walSize, 0)
+#endif
+        }
+    }
+    
+    func testCanReadFromNewInstance() throws {
+        let dbPool = try makeDatabasePool()
+        try dbPool.read { _ in }
+    }
+    
+    func testCanReadFromTruncatedWalFile() throws {
+        do {
+            let dbPool = try makeDatabasePool(filename: "test")
+            try dbPool.writeWithoutTransaction { db in
+                try db.execute(sql: "CREATE TABLE t(a)")
+                try db.checkpoint(.truncate)
+            }
+        }
+        do {
+            let dbPool = try makeDatabasePool(filename: "test")
+            let count = try dbPool.read(Table("t").fetchCount)
+            XCTAssertEqual(count, 0)
         }
     }
     
@@ -95,9 +237,7 @@ class DatabasePoolTests: GRDBTestCase {
         let group = DispatchGroup()
         
         // The maximum number of threads we could witness
-        var maxThreadCount: CInt = 0
-        let lock = NSLock()
-        
+        let maxThreadCountMutex: Mutex<CInt> = Mutex(0)
         for _ in (0..<numberOfConcurrentReads) {
             group.enter()
             pool.asyncUnsafeRead { result in
@@ -106,15 +246,15 @@ class DatabasePoolTests: GRDBTestCase {
                 }
                 
                 let threadsCount = getThreadsCount()
-                lock.lock()
-                maxThreadCount = max(maxThreadCount, threadsCount)
-                lock.unlock()
+                maxThreadCountMutex.withLock {
+                    $0 = max($0, threadsCount)
+                }
                 
                 group.leave()
             }
         }
         group.wait()
-        XCTAssert(maxThreadCount < 50)
+        XCTAssert(maxThreadCountMutex.load() < 50)
 #endif
     }
     
@@ -137,9 +277,7 @@ class DatabasePoolTests: GRDBTestCase {
         let group = DispatchGroup()
         
         // The maximum number of threads we could witness
-        var maxThreadCount: CInt = 0
-        let lock = NSLock()
-        
+        let maxThreadCountMutex: Mutex<CInt> = Mutex(0)
         for _ in (0..<numberOfConcurrentReads) {
             group.enter()
             pool.asyncRead { result in
@@ -148,15 +286,15 @@ class DatabasePoolTests: GRDBTestCase {
                 }
                 
                 let threadsCount = getThreadsCount()
-                lock.lock()
-                maxThreadCount = max(maxThreadCount, threadsCount)
-                lock.unlock()
+                maxThreadCountMutex.withLock {
+                    $0 = max($0, threadsCount)
+                }
                 
                 group.leave()
             }
         }
         group.wait()
-        XCTAssert(maxThreadCount < 50)
+        XCTAssert(maxThreadCountMutex.load() < 50)
 #endif
     }
     
@@ -255,7 +393,7 @@ class DatabasePoolTests: GRDBTestCase {
                 XCTFail("Expected Error")
             } catch DatabaseError.SQLITE_BUSY { }
         }
-        XCTAssert(lastMessage!.contains("unfinalized statement: SELECT * FROM sqlite_master"))
+        XCTAssert(lastSQLiteDiagnostic!.message.contains("unfinalized statement: SELECT * FROM sqlite_master"))
         
         // Database is not closed: no error
         try dbPool.write { db in
@@ -285,7 +423,7 @@ class DatabasePoolTests: GRDBTestCase {
         //
         // The first comes from GRDB, and the second, depending on the SQLite
         // version, from `sqlite3_close_v2()`. Write the test so that it always pass:
-        XCTAssert(lastMessage!.contains("unfinalized statement"))
+        XCTAssert(lastSQLiteDiagnostic!.message.contains("unfinalized statement"))
         
         // Database is in a zombie state.
         // In the zombie state, access throws SQLITE_MISUSE
@@ -305,5 +443,13 @@ class DatabasePoolTests: GRDBTestCase {
         
         // In the zombie state, closing is a noop
         try dbPool.close()
+    }
+    
+    // Regression test for <https://github.com/groue/GRDB.swift/issues/1612>
+    func test_releaseMemory_after_close() throws {
+        let dbPool = try makeDatabasePool()
+        try dbPool.read { _ in } // Create a reader
+        try dbPool.close()
+        dbPool.releaseMemory()
     }
 }

@@ -1,30 +1,73 @@
-/// An SQL function or aggregate.
-public final class DatabaseFunction: Hashable {
-    // SQLite identifies functions by (name + argument count)
-    private struct Identity: Hashable {
+// Import C SQLite functions
+#if SWIFT_PACKAGE
+import GRDBSQLite
+#elseif GRDBCIPHER
+import SQLCipher
+#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
+import SQLite3
+#endif
+
+/// A custom SQL function or aggregate.
+///
+/// ## Topics
+///
+/// ### Creating a Custom SQL Function or Aggregate
+///
+/// - ``init(_:argumentCount:pure:function:)``
+/// - ``init(_:argumentCount:pure:aggregate:)``
+/// - ``DatabaseAggregate``
+///
+/// ### Calling an SQL Function or Aggregate
+///
+/// - ``callAsFunction(_:)``
+///
+/// ### Built-in Functions
+///
+/// - ``capitalize``
+/// - ``localizedCapitalize``
+/// - ``localizedLowercase``
+/// - ``localizedUppercase``
+/// - ``lowercase``
+/// - ``uppercase``
+public final class DatabaseFunction: Identifiable, Sendable {
+    /// The identifier of an SQLite function.
+    ///
+    /// SQLite identifies functions by their name and argument count.
+    public struct ID: Hashable, Sendable {
         let name: String
         let nArg: CInt // -1 for variadic functions
     }
     
-    /// The name of the SQL function
-    public var name: String { identity.name }
-    private let identity: Identity
-    let pure: Bool
+    /// The name of the SQL function.
+    public var name: String { id.name }
+    
+    /// The identifier of the SQL function.
+    public let id: ID
+    let isPure: Bool
     private let kind: Kind
-    private var eTextRep: CInt { (SQLITE_UTF8 | (pure ? SQLITE_DETERMINISTIC : 0)) }
+    private var eTextRep: CInt { (SQLITE_UTF8 | (isPure ? SQLITE_DETERMINISTIC : 0)) }
     
     /// Creates an SQL function.
     ///
     /// For example:
     ///
-    ///     let fn = DatabaseFunction("succ", argumentCount: 1) { dbValues in
-    ///         guard let int = Int.fromDatabaseValue(dbValues[0]) else {
-    ///             return nil
-    ///         }
-    ///         return int + 1
+    /// ```swift
+    /// let succ = DatabaseFunction("succ", argumentCount: 1) { dbValues in
+    ///     guard let int = Int.fromDatabaseValue(dbValues[0]) else {
+    ///         return nil
     ///     }
-    ///     db.add(function: fn)
+    ///     return int + 1
+    /// }
+    /// let dbQueue = try DatabaseQueue()
+    /// try dbQueue.read { db in
+    ///     db.add(function: succ)
     ///     try Int.fetchOne(db, sql: "SELECT succ(1)")! // 2
+    /// }
+    /// ```
+    ///
+    /// ### Related APIs
+    ///
+    /// - ``Database/add(function:)``
     ///
     /// - parameters:
     ///     - name: The function name.
@@ -34,20 +77,20 @@ public final class DatabaseFunction: Hashable {
     ///       only depends on its inputs. When a function is pure, SQLite has
     ///       the opportunity to perform additional optimizations. Default value
     ///       is false.
-    ///     - function: A function that takes an array of DatabaseValue
-    ///       arguments, and returns an optional DatabaseValueConvertible such
-    ///       as Int, String, NSDate, etc. The array is guaranteed to have
-    ///       exactly *argumentCount* elements, provided *argumentCount* is
+    ///     - function: A function that takes an array of ``DatabaseValue``
+    ///       arguments, and returns an optional ``DatabaseValueConvertible``
+    ///       such as `Int`, `String`, `Date`, etc. The array is guaranteed to
+    ///       have exactly `argumentCount` elements, provided `argumentCount` is
     ///       not nil.
     public init(
         _ name: String,
         argumentCount: Int? = nil,
         pure: Bool = false,
-        function: @escaping ([DatabaseValue]) throws -> (any DatabaseValueConvertible)?)
+        function: @escaping @Sendable ([DatabaseValue]) throws -> (any DatabaseValueConvertible)?)
     {
-        self.identity = Identity(name: name, nArg: argumentCount.map(CInt.init) ?? -1)
-        self.pure = pure
-        self.kind = .function{ (argc, argv) in
+        self.id = ID(name: name, nArg: argumentCount.map(CInt.init) ?? -1)
+        self.isPure = pure
+        self.kind = .function { (argc, argv) in
             let arguments = (0..<Int(argc)).map { index in
                 DatabaseValue(sqliteValue: argv.unsafelyUnwrapped[index]!)
             }
@@ -59,29 +102,35 @@ public final class DatabaseFunction: Hashable {
     ///
     /// For example:
     ///
-    ///     struct MySum: DatabaseAggregate {
-    ///         var sum: Int = 0
+    /// ```swift
+    /// struct MySum: DatabaseAggregate {
+    ///     var sum: Int = 0
     ///
-    ///         mutating func step(_ dbValues: [DatabaseValue]) {
-    ///             if let int = Int.fromDatabaseValue(dbValues[0]) {
-    ///                 sum += int
-    ///             }
-    ///         }
-    ///
-    ///         func finalize() -> (any DatabaseValueConvertible)? {
-    ///             return sum
+    ///     mutating func step(_ dbValues: [DatabaseValue]) {
+    ///         if let int = Int.fromDatabaseValue(dbValues[0]) {
+    ///             sum += int
     ///         }
     ///     }
     ///
-    ///     let dbQueue = try DatabaseQueue()
-    ///     let fn = DatabaseFunction("mysum", argumentCount: 1, aggregate: MySum.self)
-    ///     try dbQueue.write { db in
-    ///         db.add(function: fn)
-    ///         try db.execute(sql: "CREATE TABLE test(i)")
-    ///         try db.execute(sql: "INSERT INTO test(i) VALUES (1)")
-    ///         try db.execute(sql: "INSERT INTO test(i) VALUES (2)")
-    ///         try Int.fetchOne(db, sql: "SELECT mysum(i) FROM test")! // 3
+    ///     func finalize() -> (any DatabaseValueConvertible)? {
+    ///         return sum
     ///     }
+    /// }
+    ///
+    /// let dbQueue = try DatabaseQueue()
+    /// let mySum = DatabaseFunction("mySum", argumentCount: 1, aggregate: MySum.self)
+    /// try dbQueue.write { db in
+    ///     db.add(function: mySum)
+    ///     try db.execute(sql: "CREATE TABLE test(i)")
+    ///     try db.execute(sql: "INSERT INTO test(i) VALUES (1)")
+    ///     try db.execute(sql: "INSERT INTO test(i) VALUES (2)")
+    ///     try Int.fetchOne(db, sql: "SELECT mySum(i) FROM test")! // 3
+    /// }
+    /// ```
+    ///
+    /// ### Related APIs
+    ///
+    /// - ``Database/add(function:)``
     ///
     /// - parameters:
     ///     - name: The function name.
@@ -91,10 +140,11 @@ public final class DatabaseFunction: Hashable {
     ///       results only depends on its inputs. When an aggregate is pure,
     ///       SQLite has the opportunity to perform additional optimizations.
     ///       Default value is false.
-    ///     - aggregate: A type that implements the DatabaseAggregate protocol.
-    ///       For each step of the aggregation, its `step` method is called with
-    ///       an array of DatabaseValue arguments. The array is guaranteed to
-    ///       have exactly *argumentCount* elements, provided *argumentCount* is
+    ///     - aggregate: A type that implements the ``DatabaseAggregate``
+    ///       protocol. For each step of the aggregation, its
+    ///       ``DatabaseAggregate/step(_:)`` method is called with an array of
+    ///       ``DatabaseValue`` arguments. The array is guaranteed to have
+    ///       exactly `argumentCount` elements, provided `argumentCount` is
     ///       not nil.
     public init<Aggregate: DatabaseAggregate>(
         _ name: String,
@@ -102,23 +152,56 @@ public final class DatabaseFunction: Hashable {
         pure: Bool = false,
         aggregate: Aggregate.Type)
     {
-        self.identity = Identity(name: name, nArg: argumentCount.map(CInt.init) ?? -1)
-        self.pure = pure
+        self.id = ID(name: name, nArg: argumentCount.map(CInt.init) ?? -1)
+        self.isPure = pure
         self.kind = .aggregate { Aggregate() }
     }
     
+    // TODO: GRDB7 -> expose ORDER BY and FILTER when we have distinct types for simple functions and aggregates.
     /// Returns an SQL expression that applies the function.
     ///
-    /// See <https://github.com/groue/GRDB.swift/#sql-functions>
+    /// You can use a `DatabaseFunction` as a regular Swift function. It returns
+    /// an SQL expression that you can use in the query interface.
+    ///
+    /// In the example below, `square(Column("score"))` generates the
+    /// `square(score)` SQL expression:
+    ///
+    /// ```swift
+    /// let square = DatabaseFunction("square", argumentCount: 1) { dbValues in
+    ///     guard let int = Int.fromDatabaseValue(dbValues[0]) else {
+    ///         return nil
+    ///     }
+    ///     return int * int
+    /// }
+    /// let dbQueue = try DatabaseQueue()
+    /// try dbQueue.read { db in
+    ///     db.add(function: square)
+    ///
+    ///     // SELECT square(score) FROM player
+    ///     let squaredScores = let Player
+    ///         .select(square(Column("score")), as: Int.self)
+    ///         .fetchAll(db)
+    /// }
+    /// ```
     public func callAsFunction(_ arguments: any SQLExpressible...) -> SQLExpression {
         switch kind {
-        case .aggregate:
-            return .function(name, arguments.map(\.sqlExpression))
         case .function:
-            return .aggregate(name, arguments.map(\.sqlExpression))
+            return .simpleFunction(
+                name,
+                arguments.map(\.sqlExpression),
+                isPure: isPure,
+                isJSONValue: false)
+        case .aggregate:
+            return .aggregateFunction(
+                name,
+                arguments.map(\.sqlExpression),
+                isDistinct: false,
+                ordering: nil,
+                filter: nil,
+                isJSONValue: false)
         }
     }
-
+    
     /// Calls sqlite3_create_function_v2
     /// See <https://sqlite.org/c3ref/create_function.html>
     func install(in db: Database) {
@@ -128,8 +211,8 @@ public final class DatabaseFunction: Hashable {
         
         let code = sqlite3_create_function_v2(
             db.sqliteConnection,
-            identity.name,
-            identity.nArg,
+            id.name,
+            id.nArg,
             eTextRep,
             definitionP,
             kind.xFunc,
@@ -151,8 +234,8 @@ public final class DatabaseFunction: Hashable {
     func uninstall(in db: Database) {
         let code = sqlite3_create_function_v2(
             db.sqliteConnection,
-            identity.name,
-            identity.nArg,
+            id.name,
+            id.nArg,
             eTextRep,
             nil, nil, nil, nil, nil)
         
@@ -195,12 +278,12 @@ public final class DatabaseFunction: Hashable {
     
     /// A function kind: an "SQL function" or an "aggregate".
     /// See <http://sqlite.org/capi3ref.html#sqlite3_create_function>
-    private enum Kind {
+    private enum Kind: Sendable {
         /// A regular function: SELECT f(1)
-        case function((CInt, UnsafeMutablePointer<OpaquePointer?>?) throws -> (any DatabaseValueConvertible)?)
+        case function(@Sendable (CInt, UnsafeMutablePointer<OpaquePointer?>?) throws -> (any DatabaseValueConvertible)?)
         
         /// An aggregate: SELECT f(foo) FROM bar GROUP BY baz
-        case aggregate(() -> any DatabaseAggregate)
+        case aggregate(@Sendable () -> any DatabaseAggregate)
         
         /// Feeds the `pApp` parameter of sqlite3_create_function_v2
         /// <http://sqlite.org/capi3ref.html#sqlite3_create_function>
@@ -345,64 +428,57 @@ public final class DatabaseFunction: Hashable {
     }
 }
 
-extension DatabaseFunction {
-    /// :nodoc:
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(identity)
-    }
-    
-    /// Two functions are equal if they share the same name and arity.
-    /// :nodoc:
-    public static func == (lhs: DatabaseFunction, rhs: DatabaseFunction) -> Bool {
-        lhs.identity == rhs.identity
-    }
-}
-
 /// The protocol for custom SQLite aggregates.
 ///
 /// For example:
 ///
-///     struct MySum : DatabaseAggregate {
-///         var sum: Int = 0
+/// ```swift
+/// struct MySum : DatabaseAggregate {
+///     var sum: Int = 0
 ///
-///         mutating func step(_ dbValues: [DatabaseValue]) {
-///             if let int = Int.fromDatabaseValue(dbValues[0]) {
-///                 sum += int
-///             }
-///         }
-///
-///         func finalize() -> (any DatabaseValueConvertible)? {
-///             return sum
+///     mutating func step(_ dbValues: [DatabaseValue]) {
+///         if let int = Int.fromDatabaseValue(dbValues[0]) {
+///             sum += int
 ///         }
 ///     }
 ///
-///     let dbQueue = try DatabaseQueue()
-///     let fn = DatabaseFunction("mysum", argumentCount: 1, aggregate: MySum.self)
-///     try dbQueue.write { db in
-///         db.add(function: fn)
-///         try db.execute(sql: "CREATE TABLE test(i)")
-///         try db.execute(sql: "INSERT INTO test(i) VALUES (1)")
-///         try db.execute(sql: "INSERT INTO test(i) VALUES (2)")
-///         try Int.fetchOne(db, sql: "SELECT mysum(i) FROM test")! // 3
+///     func finalize() -> (any DatabaseValueConvertible)? {
+///         return sum
 ///     }
+/// }
+///
+/// let dbQueue = try DatabaseQueue()
+/// let mySum = DatabaseFunction("mySum", argumentCount: 1, aggregate: MySum.self)
+/// try dbQueue.write { db in
+///     db.add(function: mySum)
+///     try db.execute(sql: "CREATE TABLE test(i)")
+///     try db.execute(sql: "INSERT INTO test(i) VALUES (1)")
+///     try db.execute(sql: "INSERT INTO test(i) VALUES (2)")
+///     try Int.fetchOne(db, sql: "SELECT mysum(i) FROM test")! // 3
+/// }
+/// ```
 public protocol DatabaseAggregate {
     /// Creates an aggregate.
+    ///
+    /// A new instance is created for each aggregation.
     init()
     
-    /// This method is called at each step of the aggregation.
+    /// Updates the aggregated value for one step of the aggregation.
     ///
-    /// The dbValues argument contains as many values as given to the SQL
-    /// aggregate function.
+    /// This method is called once for each step of the aggregation.
     ///
-    ///    -- One value
-    ///    SELECT maxLength(name) FROM player
+    /// The `dbValues` argument contains as many values as given to the SQL
+    /// aggregate function:
     ///
-    ///    -- Two values
-    ///    SELECT maxFullNameLength(firstName, lastName) FROM player
+    /// ```sql
+    /// -- One value
+    /// SELECT maxLength(name) FROM player
     ///
-    /// This method is never called after the finalize() method has been called.
+    /// -- Two values
+    /// SELECT maxFullNameLength(firstName, lastName) FROM player
+    /// ```
     mutating func step(_ dbValues: [DatabaseValue]) throws
     
-    /// Returns the final result
+    /// Returns the aggregated value.
     func finalize() throws -> (any DatabaseValueConvertible)?
 }

@@ -71,6 +71,32 @@ class TableRecordQueryInterfaceRequestTests: GRDBTestCase {
             
             XCTAssertEqual(try Reader.select(max(Col.age)).group(Col.name).fetchCount(db), 0)
             XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM (SELECT MAX(\"age\") FROM \"readers\" GROUP BY \"name\")")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: [] as [String])).fetchCount(db), 0)
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM \"readers\"")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: [] as [String])).distinct().fetchCount(db), 0)
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM (SELECT DISTINCT * FROM \"readers\")")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: ["name"])).fetchCount(db), 0)
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM \"readers\"")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: ["name"])).distinct().fetchCount(db), 0)
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM (SELECT DISTINCT \"id\", \"age\" FROM \"readers\")")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: ["id", "name"])).fetchCount(db), 0)
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM \"readers\"")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: ["id", "name"])).distinct().fetchCount(db), 0)
+            // This test tests for a missed optimization, because
+            // SELECT COUNT(DISTINCT age) FROM readers would be correct as well.
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM (SELECT DISTINCT \"age\" FROM \"readers\")")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: ["unknown"])).fetchCount(db), 0)
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM \"readers\"")
+            
+            XCTAssertEqual(try Reader.select(.allColumns(excluding: ["unknown"])).distinct().fetchCount(db), 0)
+            XCTAssertEqual(lastSQLQuery, "SELECT COUNT(*) FROM (SELECT DISTINCT * FROM \"readers\")")
         }
     }
 
@@ -259,7 +285,7 @@ class TableRecordQueryInterfaceRequestTests: GRDBTestCase {
             sql(dbQueue, Reader.order(Col.age.descNullsFirst)),
             "SELECT * FROM \"readers\" ORDER BY \"age\" DESC NULLS FIRST")
         #elseif !GRDBCIPHER
-        if #available(OSX 10.16, iOS 14, tvOS 14, watchOS 7, *) {
+        if #available(iOS 14, macOS 10.16, tvOS 14, *) {
             XCTAssertEqual(
                 sql(dbQueue, Reader.order(Col.age.ascNullsLast)),
                 "SELECT * FROM \"readers\" ORDER BY \"age\" ASC NULLS LAST")
@@ -328,7 +354,7 @@ class TableRecordQueryInterfaceRequestTests: GRDBTestCase {
         try dbQueue.inTransaction { db in
             struct Player: TableRecord { }
             try db.create(table: "player") { t in
-                t.column("a", .integer).notNull().primaryKey()
+                t.primaryKey("a", .integer)
             }
             
             try XCTAssertFalse(Player.exists(db, key: 1))
@@ -343,7 +369,7 @@ class TableRecordQueryInterfaceRequestTests: GRDBTestCase {
         try dbQueue.inTransaction { db in
             struct Player: TableRecord { }
             try db.create(table: "player") { t in
-                t.column("id", .text).notNull().primaryKey()
+                t.primaryKey("id", .text)
             }
             
             try XCTAssertFalse(Player.exists(db, key: "foo"))
@@ -357,10 +383,6 @@ class TableRecordQueryInterfaceRequestTests: GRDBTestCase {
     }
     
     func testExistsIdentifiable() throws {
-        guard #available(OSX 10.15, iOS 13.0, tvOS 13.0, watchOS 6, *) else {
-            throw XCTSkip("Identifiable is not available")
-        }
-        
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inTransaction { db in
             struct Player: TableRecord, Identifiable {
@@ -386,7 +408,7 @@ class TableRecordQueryInterfaceRequestTests: GRDBTestCase {
             try XCTAssertFalse(Player.exists(db, id: 1))
             XCTAssertEqual(lastSQLQuery, "SELECT EXISTS (SELECT * FROM \"player\" WHERE \"id\" = 1)")
             
-            sqlQueries.removeAll()
+            clearSQLQueries()
             try XCTAssertFalse(Player.exists(db, id: nil))
             XCTAssertNil(lastSQLQuery) // Database not hit
             
@@ -397,7 +419,7 @@ class TableRecordQueryInterfaceRequestTests: GRDBTestCase {
                 var id: String
             }
             try db.create(table: "player") { t in
-                t.column("id", .text).notNull().primaryKey()
+                t.primaryKey("id", .text)
             }
             
             try XCTAssertFalse(Player.exists(db, id: "foo"))

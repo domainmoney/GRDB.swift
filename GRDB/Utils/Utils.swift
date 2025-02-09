@@ -1,3 +1,6 @@
+#if !canImport(Darwin)
+@preconcurrency import Dispatch
+#endif
 import Foundation
 
 // MARK: - Public
@@ -31,9 +34,9 @@ func GRDBPrecondition(
     file: StaticString = #file,
     line: UInt = #line)
 {
-    /// Custom precondition function which aims at solving
-    /// <https://bugs.swift.org/browse/SR-905> and
-    /// <https://github.com/groue/GRDB.swift/issues/37>
+    // Custom precondition function which aims at solving
+    // <https://bugs.swift.org/browse/SR-905> and
+    // <https://github.com/groue/GRDB.swift/issues/37>
     if !condition() {
         fatalError(message(), file: file, line: line)
     }
@@ -67,8 +70,8 @@ extension Dictionary {
 }
 
 extension DispatchQueue {
-    private static var mainKey: DispatchSpecificKey<()> = {
-        let key = DispatchSpecificKey<()>()
+    private static let mainKey: DispatchSpecificKey<Void> = {
+        let key = DispatchSpecificKey<Void>()
         DispatchQueue.main.setSpecific(key: key, value: ())
         return key
     }()
@@ -112,20 +115,35 @@ func throwingFirstError<T>(execute: () throws -> T, finally: () throws -> Void) 
             firstError = error
         }
     }
-    if let firstError = firstError {
+    if let firstError {
         throw firstError
     }
     return result!
 }
 
-struct PrintOutputStream: TextOutputStream {
+struct PrintOutputStream: TextOutputStream, Sendable {
     func write(_ string: String) {
         Swift.print(string)
     }
 }
 
+/// A Sendable strong reference to an object.
+///
+/// This type hides its retained object in order to provide the
+/// Sendable guarantee.
+final class StrongReference<Value: AnyObject>: @unchecked Sendable {
+    private let value: Value
+    
+    init(_ value: Value) {
+        self.value = value
+    }
+}
+
 /// Concatenates two functions
-func concat(_ rhs: (() -> Void)?, _ lhs: (() -> Void)?) -> (() -> Void)? {
+func concat(
+    _ rhs: (@Sendable () -> Void)?,
+    _ lhs: (@Sendable () -> Void)?
+) -> (@Sendable () -> Void)? {
     switch (rhs, lhs) {
     case let (rhs, nil):
         return rhs
@@ -140,7 +158,10 @@ func concat(_ rhs: (() -> Void)?, _ lhs: (() -> Void)?) -> (() -> Void)? {
 }
 
 /// Concatenates two functions
-func concat<T>(_ rhs: ((T) -> Void)?, _ lhs: ((T) -> Void)?) -> ((T) -> Void)? {
+func concat<T>(
+    _ rhs: (@Sendable (T) -> Void)?,
+    _ lhs: (@Sendable (T) -> Void)?
+) -> (@Sendable (T) -> Void)? {
     switch (rhs, lhs) {
     case let (rhs, nil):
         return rhs
@@ -190,3 +211,7 @@ extension NSLocking {
         sideEffect?()
     }
 }
+
+#if !canImport(ObjectiveC)
+@inlinable func autoreleasepool<Result>(invoking body: () throws -> Result) rethrows -> Result { try body() }
+#endif

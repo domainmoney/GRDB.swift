@@ -14,7 +14,7 @@ private class Item : Record, Hashable {
         super.init()
     }
     
-    static func setup(inDatabase db: Database) throws {
+    static func setup(_ db: Database) throws {
         try db.execute(sql: """
             CREATE TABLE items (
                 name TEXT,
@@ -58,7 +58,9 @@ class RecordPrimaryKeyNoneTests: GRDBTestCase {
     
     override func setup(_ dbWriter: some DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("createItem", migrate: Item.setup)
+        migrator.registerMigration("createItem") {
+            try Item.setup($0)
+        }
         try migrator.migrate(dbWriter)
     }
     
@@ -108,6 +110,18 @@ class RecordPrimaryKeyNoneTests: GRDBTestCase {
         }
     }
     
+    func testFindWithKey() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let record = Item(email: "item@example.com")
+            try record.insert(db)
+            
+            let fetchedRecord = try Item.find(db, key: ["email": record.email])
+            XCTAssertTrue(fetchedRecord.email == record.email)
+            XCTAssertEqual(lastSQLQuery, "SELECT * FROM \"items\" WHERE \"email\" = 'item@example.com'")
+        }
+    }
+
     
     // MARK: - Fetch With Key Request
     
@@ -130,6 +144,17 @@ class RecordPrimaryKeyNoneTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             let request = Item.orderByPrimaryKey()
+            try assertEqualSQL(db, request, "SELECT * FROM \"items\" ORDER BY \"rowid\"")
+        }
+    }
+    
+    
+    // MARK: - Stable order
+    
+    func testStableOrder() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let request = Item.all().withStableOrder()
             try assertEqualSQL(db, request, "SELECT * FROM \"items\" ORDER BY \"rowid\"")
         }
     }
@@ -240,6 +265,27 @@ class RecordPrimaryKeyNoneTests: GRDBTestCase {
         }
     }
     
+    func testFindWithPrimaryKey() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let record = Item(name: "Table")
+            try record.insert(db)
+            let id = db.lastInsertedRowID
+            
+            do {
+                let id: Int64? = nil
+                _ = try Item.find(db, key: id)
+                XCTFail("Expected RecordError")
+            } catch RecordError.recordNotFound(databaseTableName: "items", key: ["rowid": .null]) { }
+
+            do {
+                let fetchedRecord = try Item.find(db, key: id)
+                XCTAssertTrue(fetchedRecord.name == record.name)
+                XCTAssertEqual(lastSQLQuery, "SELECT * FROM \"items\" WHERE \"rowid\" = \(id)")
+            }
+        }
+    }
+
     
     // MARK: - Fetch With Primary Key Request
     

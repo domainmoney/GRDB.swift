@@ -17,7 +17,7 @@ class DatabaseErrorTests: GRDBTestCase {
             try dbQueue.inTransaction { db in
                 try db.execute(sql: "CREATE TABLE persons (id INTEGER PRIMARY KEY)")
                 try db.execute(sql: "CREATE TABLE pets (masterId INTEGER NOT NULL REFERENCES persons(id), name TEXT)")
-                sqlQueries.removeAll()
+                clearSQLQueries()
                 try db.execute(sql: "INSERT INTO pets (masterId, name) VALUES (?, ?)", arguments: [1, "Bobby"])
                 XCTFail()
                 return .commit
@@ -44,7 +44,7 @@ class DatabaseErrorTests: GRDBTestCase {
                         XCTAssertTrue(db.isInsideTransaction)
                         try db.execute(sql: "CREATE TABLE persons (id INTEGER PRIMARY KEY)")
                         try db.execute(sql: "CREATE TABLE pets (masterId INTEGER NOT NULL REFERENCES persons(id), name TEXT)")
-                        sqlQueries.removeAll()
+                        clearSQLQueries()
                         try db.execute(sql: "INSERT INTO pets (masterId, name) VALUES (?, ?)", arguments: [1, "Bobby"])
                         XCTFail()
                         return .commit
@@ -205,7 +205,7 @@ class DatabaseErrorTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             try db.create(table: "parents") { $0.column("id", .integer).primaryKey() }
-            try db.create(table: "children") { $0.column("parentId", .integer).references("parents") }
+            try db.create(table: "children") { $0.belongsTo("parent") }
             do {
                 try db.execute(sql: "INSERT INTO children (parentId) VALUES (1)")
             } catch let error as DatabaseError {
@@ -219,7 +219,7 @@ class DatabaseErrorTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             try db.create(table: "parents") { $0.column("id", .integer).primaryKey() }
-            try db.create(table: "children") { $0.column("parentId", .integer).references("parents") }
+            try db.create(table: "children") { $0.belongsTo("parent") }
             do {
                 try db.execute(sql: "INSERT INTO children (parentId) VALUES (1)")
             } catch let error as NSError {
