@@ -1,18 +1,11 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
 extension Database {
-    
+
     // MARK: - Statements
-    
+
     /// Returns a new prepared statement that can be reused.
     ///
     /// For example:
@@ -33,7 +26,7 @@ extension Database {
     public func makeStatement(sql: String) throws -> Statement {
         try makeStatement(sql: sql, prepFlags: 0)
     }
-    
+
     /// Returns a new prepared statement that can be reused.
     ///
     /// For example:
@@ -79,7 +72,7 @@ extension Database {
         }
         return statement
     }
-    
+
     /// Returns a new prepared statement that can be reused.
     ///
     /// For example:
@@ -124,7 +117,7 @@ extension Database {
         }
         return statement
     }
-    
+
     /// Returns a prepared statement that can be reused.
     ///
     /// For example:
@@ -148,7 +141,7 @@ extension Database {
     public func cachedStatement(sql: String) throws -> Statement {
         try publicStatementCache.statement(sql)
     }
-    
+
     /// Returns a prepared statement that can be reused.
     ///
     /// For example:
@@ -194,12 +187,12 @@ extension Database {
         }
         return statement
     }
-    
+
     /// Returns a cached statement that does not conflict with user's cached statements.
     func internalCachedStatement(sql: String) throws -> Statement {
         try internalStatementCache.statement(sql)
     }
-    
+
     /// Returns a cursor of prepared statements.
     ///
     /// For example:
@@ -297,7 +290,7 @@ extension Database {
             : context.arguments // force arguments to match
         return SQLStatementCursor(database: self, sql: sql, arguments: arguments)
     }
-    
+
     /// Executes one or several SQL statements.
     ///
     /// For example:
@@ -321,7 +314,7 @@ extension Database {
     public func execute(sql: String, arguments: StatementArguments = StatementArguments()) throws {
         try execute(literal: SQL(sql: sql, arguments: arguments))
     }
-    
+
     /// Executes one or several SQL statements.
     ///
     /// ``SQL`` literals allow you to safely embed raw values in your SQL,
@@ -355,11 +348,11 @@ public class SQLStatementCursor {
     private let cString: ContiguousArray<CChar>
     private let prepFlags: CUnsignedInt
     private let initialArgumentCount: Int?
-    
+
     // Mutated by iteration
     private var offset: Int // offset in the C string
     private var arguments: StatementArguments? // Nil when arguments are set later
-    
+
     init(database: Database, sql: String, arguments: StatementArguments?, prepFlags: CUnsignedInt = 0) {
         self.database = database
         self.cString = sql.utf8CString
@@ -382,10 +375,10 @@ extension SQLStatementCursor: Cursor {
             try checkArgumentsAreEmpty()
             return nil
         }
-        
+
         return try cString.withUnsafeBufferPointer { buffer in
             let baseAddress = buffer.baseAddress! // never nil because the buffer contains the trailing \0.
-            
+
             // Compile next statement
             var statementEnd: UnsafePointer<CChar>? = nil
             let statement = try Statement(
@@ -393,16 +386,16 @@ extension SQLStatementCursor: Cursor {
                 statementStart: baseAddress + offset,
                 statementEnd: &statementEnd,
                 prepFlags: prepFlags)
-            
+
             // Advance to next statement
             offset = statementEnd! - baseAddress // never nil because statement compilation did not fail.
-            
+
             guard let statement else {
                 // No statement found -> end of cursor.
                 try checkArgumentsAreEmpty()
                 return nil
             }
-            
+
             if arguments != nil {
                 // Extract statement arguments
                 let bindings = try arguments!.extractBindings(
@@ -412,11 +405,11 @@ extension SQLStatementCursor: Cursor {
                 // number of arguments
                 statement.setUncheckedArguments(StatementArguments(bindings))
             }
-            
+
             return statement
         }
     }
-    
+
     /// Check that all arguments were consumed: it is a programmer error to
     /// provide arguments that do not match the statements.
     private func checkArgumentsAreEmpty() throws {
@@ -438,20 +431,20 @@ extension Database {
         // Aborted transactions prevent statement execution (see the
         // documentation of this method for more information).
         try checkForAbortedTransaction(sql: statement.sql, arguments: statement.arguments)
-        
+
         // Cancelled database accesses must not execute.
         // Suspended databases must not execute statements that create the risk
         // of `0xdead10cc` exception (see the documentation of this method for
         // more information).
         try checkForSuspensionViolation(from: statement)
-        
+
         // Record the database region selected by the statement execution.
         try registerAccess(to: statement.databaseRegion)
-        
+
         // Database observation: prepare transaction observers.
         observationBroker?.statementWillExecute(statement)
     }
-    
+
     /// May throw a cancelled commit error, if a transaction observer cancels
     /// an empty transaction.
     @usableFromInline
@@ -459,13 +452,13 @@ extension Database {
         if statement.invalidatesDatabaseSchemaCache {
             clearSchemaCache()
         }
-        
+
         checkForAutocommitTransition()
-        
+
         // Database observation: cleanup
         try observationBroker?.statementDidExecute(statement)
     }
-    
+
     /// Always throws an error
     @usableFromInline
     func statementDidFail(_ statement: Statement, withResultCode resultCode: CInt) throws -> Never {
@@ -476,22 +469,22 @@ extension Database {
         // So make sure we clear this statement from the cache.
         internalStatementCache.remove(statement)
         publicStatementCache.remove(statement)
-        
+
         checkForAutocommitTransition()
-        
+
         // Extract values that may be modified by the user in their
         // `TransactionObserver.databaseDidRollback(_:)` implementation
         // (see below).
         let message = lastErrorMessage
         let arguments = statement.arguments
-        
+
         // Database observation: cleanup.
         //
         // If the statement failure is due to a transaction observer that has
         // cancelled a transaction, this calls `TransactionObserver.databaseDidRollback(_:)`,
         // and throws the user-provided cancelled commit error.
         try observationBroker?.statementDidFail(statement)
-        
+
         switch ResultCode(rawValue: resultCode) {
         case .SQLITE_INTERRUPT, .SQLITE_ABORT:
             if suspensionMutex.load().isCancelled {
@@ -502,7 +495,7 @@ extension Database {
         default:
             break
         }
-        
+
         // Throw statement failure
         throw DatabaseError(
             resultCode: resultCode,
@@ -511,7 +504,7 @@ extension Database {
             arguments: arguments,
             publicStatementArguments: configuration.publicStatementArguments)
     }
-    
+
     private func checkForAutocommitTransition() {
         if sqlite3_get_autocommit(sqliteConnection) == 0 {
             if autocommitState == .on {
@@ -536,16 +529,16 @@ extension Database {
 struct StatementCache {
     unowned let db: Database
     private var statements: [String: Statement] = [:]
-    
+
     init(database: Database) {
         self.db = database
     }
-    
+
     mutating func statement(_ sql: String) throws -> Statement {
         if let statement = statements[sql] {
             return statement
         }
-        
+
         // http://www.sqlite.org/c3ref/c_prepare_persistent.html#sqlitepreparepersistent
         // > The SQLITE_PREPARE_PERSISTENT flag is a hint to the query
         // > planner that the prepared statement will be retained for a long
@@ -556,15 +549,15 @@ struct StatementCache {
         statements[sql] = statement
         return statement
     }
-    
+
     mutating func clear() {
         statements = [:]
     }
-    
+
     mutating func remove(_ statement: Statement) {
         statements.removeFirst { $0.value === statement }
     }
-    
+
     mutating func removeAll(where shouldBeRemoved: (Statement) -> Bool) {
         statements = statements.filter { (_, statement) in !shouldBeRemoved(statement) }
     }

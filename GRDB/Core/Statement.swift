@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -20,7 +13,7 @@ extension String {
     /// and must not be used for parsing. Its only purpose is to trim compiled
     /// SQL statements with `String.trimmedSQLStatement`.
     private static let sqlStatementSeparators = CharacterSet(charactersIn: ";").union(.whitespacesAndNewlines)
-    
+
     /// Returns a string trimmed from SQL statement separators.
     ///
     /// For example:
@@ -43,25 +36,25 @@ public final class Statement {
         case releaseSavepoint(String)
         case rollbackSavepoint(String)
     }
-    
+
     /// The raw SQLite statement, suitable for the SQLite C API.
     public let sqliteStatement: SQLiteStatement
-    
+
     /// The SQL query.
     public var sql: String {
         SchedulingWatchdog.preconditionValidQueue(database)
-        
+
         // trim white space and semicolon for homogeneous output
         return String(cString: sqlite3_sql(sqliteStatement)).trimmedSQLStatement
     }
-    
+
     /// The column names, ordered from left to right.
     public lazy var columnNames: [String] = {
         // swiftlint:disable:next redundant_self_in_closure
         let sqliteStatement = self.sqliteStatement
         return (0..<CInt(columnCount)).map { String(cString: sqlite3_column_name(sqliteStatement, $0)) }
     }()
-    
+
     // The database region is reported by `sqlite3_set_authorizer`, and maybe
     // refined in `SQLQueryGenerator.makeStatement(_:)` when we have enough
     // information about the statement.
@@ -81,20 +74,20 @@ public final class Statement {
     /// print(statement.databaseRegion)
     /// ```
     public internal(set) var databaseRegion = DatabaseRegion()
-    
+
     /// If true, the database schema cache gets invalidated after this statement
     /// is executed (reported by `sqlite3_set_authorizer`).
     private(set) var invalidatesDatabaseSchemaCache = false
-    
+
     /// The eventual effect of transactions, as reported by `sqlite3_set_authorizer`.
     private(set) var transactionEffect: TransactionEffect?
-    
+
     /// The effects on the database (reported by `sqlite3_set_authorizer`).
     private(set) var authorizerEventKinds: [DatabaseEventKind] = []
-    
+
     /// If true, the statement executes is a `PRAGMA QUERY_ONLY` statement.
     private(set) var isQueryOnlyPragma = false
-    
+
     /// A boolean value indicating if the prepared statement makes no direct
     /// changes to the content of the database file.
     ///
@@ -102,22 +95,22 @@ public final class Statement {
     public var isReadonly: Bool {
         sqlite3_stmt_readonly(sqliteStatement) != 0
     }
-    
+
     /// A boolean value indicating if the statement can delete some rows.
     var canDeleteRows: Bool {
         authorizerEventKinds.contains(where: \.isDelete)
     }
-    
+
     @usableFromInline
     unowned let database: Database
-    
+
     /// Cache for index(ofColumn:). Keys are lowercase.
     private lazy var columnIndexes: [String: Int] = {
         Dictionary(
             columnNames.enumerated().map { ($0.element.lowercased(), $0.offset) },
             uniquingKeysWith: { (left, _) in left }) // keep leftmost indexes
     }()
-    
+
     /// Creates a prepared statement. Returns nil if the compiled string is
     /// blank or empty.
     ///
@@ -136,27 +129,27 @@ public final class Statement {
         prepFlags: CUnsignedInt) throws
     {
         SchedulingWatchdog.preconditionValidQueue(database)
-        
+
         // Reset authorizer before preparing the statement
         let authorizer = database.authorizer
         authorizer.reset()
-        
+
         var sqliteStatement: SQLiteStatement? = nil
         let code = sqlite3_prepare_v3(
             database.sqliteConnection, statementStart, -1, prepFlags,
             &sqliteStatement, statementEnd)
-        
+
         guard code == SQLITE_OK else {
             throw DatabaseError(
                 resultCode: code,
                 message: database.lastErrorMessage,
                 sql: String(cString: statementStart))
         }
-        
+
         guard let sqliteStatement else {
             return nil
         }
-        
+
         self.database = database
         self.sqliteStatement = sqliteStatement
         self.databaseRegion = authorizer.selectedRegion
@@ -165,13 +158,13 @@ public final class Statement {
         self.authorizerEventKinds = authorizer.databaseEventKinds
         self.isQueryOnlyPragma = authorizer.isQueryOnlyPragma
     }
-    
+
     deinit {
         sqlite3_finalize(sqliteStatement)
     }
-    
+
     // MARK: Arguments
-    
+
     /// Whether arguments are valid and bound inside the SQLite statement.
     ///
     /// If true, arguments are considered valid, and they are bound in
@@ -218,15 +211,15 @@ public final class Statement {
     ///
     ///     See `withArguments(_:do:)`.
     private var argumentsAreValidAndBound = false
-    
+
     /// The statement arguments. They may be bound, or not, in the SQLite
     /// statement. See `argumentsAreValidAndBound`.
     private var _arguments = StatementArguments()
-    
+
     lazy var sqliteArgumentCount: Int = {
         Int(sqlite3_bind_parameter_count(sqliteStatement))
     }()
-    
+
     // Returns ["id", nil, "name"] for "INSERT INTO table VALUES (:id, ?, :name)"
     fileprivate lazy var sqliteArgumentNames: [String?] = {
         (1..<CInt(sqliteArgumentCount + 1)).map {
@@ -236,7 +229,7 @@ public final class Statement {
             return String(cString: cString + 1) // Drop initial ":", "@", "$"
         }
     }()
-    
+
     /// The statement arguments.
     ///
     /// For example:
@@ -274,7 +267,7 @@ public final class Statement {
             try! setArguments(newValue)
         }
     }
-    
+
     /// Throws a ``DatabaseError`` of code `SQLITE_ERROR` if the provided
     /// arguments do not provide all values expected by the statement.
     ///
@@ -301,7 +294,7 @@ public final class Statement {
         var arguments = arguments
         _ = try arguments.extractBindings(forStatement: self, allowingRemainingValues: false)
     }
-    
+
     /// Set arguments without any validation. Trades safety for performance.
     ///
     /// Only call this method if you are sure input arguments provide all
@@ -333,7 +326,7 @@ public final class Statement {
         _arguments = arguments
         argumentsAreValidAndBound = true
         clearBindings()
-        
+
         var valuesIterator = arguments.values.makeIterator()
         for (index, argumentName) in zip(CInt(1)..., sqliteArgumentNames) {
             if let argumentName, let value = arguments.namedValues[argumentName] {
@@ -343,7 +336,7 @@ public final class Statement {
             }
         }
     }
-    
+
     /// Validates and sets the statement arguments.
     ///
     /// This method throws a ``DatabaseError`` of code `SQLITE_MISUSE` if
@@ -371,18 +364,18 @@ public final class Statement {
         // Validate
         var consumedArguments = arguments
         let bindings = try consumedArguments.extractBindings(forStatement: self, allowingRemainingValues: false)
-        
+
         // Reset and bind arguments
         try reset()
         _arguments = arguments
         argumentsAreValidAndBound = true
         clearBindings()
-        
+
         for (index, dbValue) in zip(CInt(1)..., bindings) {
             bind(dbValue, at: index)
         }
     }
-    
+
     /// Resets, sets arguments, and calls the given closure after performing
     /// temporary bindings that avoid copying strings and blobs.
     ///
@@ -393,33 +386,33 @@ public final class Statement {
         // Validate
         var consumedArguments = arguments
         let bindings = try consumedArguments.extractBindings(forStatement: self, allowingRemainingValues: false)
-        
+
         // Reset and bind arguments (temporarily)
         try reset()
         _arguments = arguments
         argumentsAreValidAndBound = false
         clearBindings()
-        
+
         defer {
             // Don't leave the SQLite statement in an invalid state
             // (temporary bindings that point to undefined memory).
             clearBindings()
         }
-        
+
         return try withBindings(bindings, to: sqliteStatement, do: body)
     }
-    
+
     // 1-based index
     func bind(_ value: some StatementBinding, at index: CInt) {
         let code = value.bind(to: sqliteStatement, at: index)
-        
+
         // It looks like sqlite3_bind_xxx() functions do not access the file system.
         // They should thus succeed, unless a GRDB bug: there is no point throwing any error.
         guard code == SQLITE_OK else {
             fatalError(DatabaseError(resultCode: code, message: database.lastErrorMessage, sql: sql))
         }
     }
-    
+
     // Don't make this one public unless we keep the arguments property in sync.
     func clearBindings() {
         // It looks like sqlite3_clear_bindings() does not access the file system.
@@ -430,9 +423,9 @@ public final class Statement {
             fatalError(DatabaseError(resultCode: code, message: database.lastErrorMessage, sql: sql))
         }
     }
-    
+
     // MARK: Execution
-    
+
     func reset() throws {
         SchedulingWatchdog.preconditionValidQueue(database)
         let code = sqlite3_reset(sqliteStatement)
@@ -440,7 +433,7 @@ public final class Statement {
             throw DatabaseError(resultCode: code, message: database.lastErrorMessage, sql: sql)
         }
     }
-    
+
     /// Convenience method that resets, sets arguments if needed, and checks
     /// arguments validity.
     ///
@@ -450,7 +443,7 @@ public final class Statement {
             try setArguments(newArguments) // calls reset()
             return
         }
-        
+
         if argumentsAreValidAndBound {
             try reset()
         } else {
@@ -481,7 +474,7 @@ public final class Statement {
             }
         }
     }
-    
+
     /// Executes the prepared statement.
     ///
     /// For example:
@@ -562,10 +555,10 @@ public final class Statement {
             try executeAllSteps()
         }
     }
-    
+
     private func executeAllSteps() throws {
         try database.statementWillExecute(self)
-        
+
         // Iterate all rows, since they may execute side effects.
         while true {
             switch sqlite3_step(sqliteStatement) {
@@ -579,7 +572,7 @@ public final class Statement {
             }
         }
     }
-    
+
     /// Calls the given closure after each successful call to `sqlite3_step()`.
     ///
     /// This method is slighly faster than calling `step(_:)` repeatedly, due
@@ -587,11 +580,11 @@ public final class Statement {
     @usableFromInline
     func forEachStep(_ body: (SQLiteStatement) throws -> Void) throws {
         SchedulingWatchdog.preconditionValidQueue(database)
-        
+
         if sqlite3_stmt_busy(sqliteStatement) == 0 {
             try database.statementWillExecute(self)
         }
-        
+
         while true {
             switch sqlite3_step(sqliteStatement) {
             case SQLITE_DONE:
@@ -604,14 +597,14 @@ public final class Statement {
             }
         }
     }
-    
+
     /// Calls the given closure after one successful call to `sqlite3_step()`.
     @usableFromInline
     func step<T>(_ body: (SQLiteStatement) throws -> T) throws -> T? {
         if sqlite3_stmt_busy(sqliteStatement) == 0 {
             try database.statementWillExecute(self)
         }
-        
+
         switch sqlite3_step(sqliteStatement) {
         case SQLITE_DONE:
             try database.statementDidExecute(self)
@@ -642,14 +635,14 @@ extension Statement {
     public var columnCount: Int {
         Int(sqlite3_column_count(self.sqliteStatement))
     }
-    
+
     /// Returns the index of the leftmost column with the given name.
     ///
     /// This method is case-insensitive.
     public func index(ofColumn name: String) -> Int? {
         columnIndexes[name.lowercased()]
     }
-    
+
     /// Creates a cursor over the statement which does not produce any
     /// value. Each call to the next() cursor method calls the sqlite3_step()
     /// C function.
@@ -714,10 +707,10 @@ extension Statement {
 public protocol DatabaseCursor<Element>: Cursor {
     /// Must be initialized to false.
     var _isDone: Bool { get set }
-    
+
     /// The statement iterated by the cursor
     var _statement: Statement { get }
-    
+
     /// Called after one successful call to `sqlite3_step()`. Returns the
     /// element for the current statement step.
     func _element(sqliteStatement: SQLiteStatement) throws -> Element
@@ -728,16 +721,16 @@ public protocol DatabaseCursor<Element>: Cursor {
 extension DatabaseCursor {
     /// The SQL query.
     public var sql: String { _statement.sql }
-    
+
     /// The statement arguments.
     public var arguments: StatementArguments { _statement.arguments }
-    
+
     /// The column names, ordered from left to right.
     public var columnNames: [String] { _statement.columnNames }
-    
+
     /// The number of columns in the resulting rows.
     public var columnCount: Int { _statement.columnCount }
-    
+
     /// The database region that the cursor looks into.
     public var databaseRegion: DatabaseRegion { _statement.databaseRegion }
 }
@@ -754,7 +747,7 @@ extension DatabaseCursor {
         _isDone = true
         return nil
     }
-    
+
     // Specific implementation of `forEach`, for a slight performance
     // improvement due to the single `sqlite3_stmt_busy` check.
     @inlinable
@@ -783,21 +776,21 @@ final class StatementCursor: DatabaseCursor {
     typealias Element = Void
     let _statement: Statement
     var _isDone = false
-    
+
     // Use Statement.makeCursor() instead
     init(statement: Statement, arguments: StatementArguments? = nil) throws {
         self._statement = statement
-        
+
         // Assume cursor is created for immediate iteration: reset and set arguments
         try statement.prepareExecution(withArguments: arguments)
     }
-    
+
     deinit {
         // Statement reset fails when sqlite3_step has previously failed.
         // Just ignore reset error.
         try? _statement.reset()
     }
-    
+
     @inlinable
     func _element(sqliteStatement: SQLiteStatement) throws { }
 }
@@ -809,7 +802,7 @@ extension Statement {
         guard let transactionEffect else {
             return false
         }
-        
+
         switch transactionEffect {
         case .commitTransaction, .rollbackTransaction,
              .releaseSavepoint, .rollbackSavepoint:
@@ -866,7 +859,7 @@ func withBindings<T>(
     guard let binding = bindings.first else {
         return try body()
     }
-    
+
     return try binding.withBinding(to: sqliteStatement, at: index) {
         try withBindings(
             bindings.dropFirst(),
@@ -985,22 +978,22 @@ func withBindings<T>(
 public struct StatementArguments: Hashable {
     private(set) var values: [DatabaseValue]
     private(set) var namedValues: [String: DatabaseValue]
-    
+
     public var isEmpty: Bool {
         values.isEmpty && namedValues.isEmpty
     }
-    
-    
+
+
     // MARK: Empty Arguments
-    
+
     /// Creates an empty `StatementArguments`.
     public init() {
         values = .init()
         namedValues = .init()
     }
-    
+
     // MARK: Positional Arguments
-    
+
     /// Creates a `StatementArguments` from a sequence of values.
     ///
     /// For example:
@@ -1013,7 +1006,7 @@ public struct StatementArguments: Hashable {
         self.values = values.map { $0?.databaseValue ?? .null }
         namedValues = .init()
     }
-    
+
     /// Creates a `StatementArguments` from a sequence of values.
     ///
     /// For example:
@@ -1026,7 +1019,7 @@ public struct StatementArguments: Hashable {
         self.values = values.map(\.databaseValue)
         namedValues = .init()
     }
-    
+
     /// Creates a `StatementArguments` from an array.
     ///
     /// The result is nil unless all array elements conform to the
@@ -1041,14 +1034,14 @@ public struct StatementArguments: Hashable {
         }
         self.init(values)
     }
-    
+
     private mutating func set(databaseValues: [DatabaseValue]) {
         self.values = databaseValues
         namedValues.removeAll(keepingCapacity: true)
     }
-    
+
     // MARK: Named Arguments
-    
+
     /// Creates a `StatementArguments` of named arguments from a dictionary.
     ///
     /// For example:
@@ -1061,7 +1054,7 @@ public struct StatementArguments: Hashable {
         namedValues = dictionary.mapValues { $0?.databaseValue ?? .null }
         values = .init()
     }
-    
+
     /// Creates a `StatementArguments` of named arguments from a sequence of
     /// (key, value) pairs.
     public init(
@@ -1073,7 +1066,7 @@ public struct StatementArguments: Hashable {
         }
         values = .init()
     }
-    
+
     /// Creates a `StatementArguments` from a dictionary.
     ///
     /// The result is nil unless all dictionary keys are strings, and values
@@ -1093,10 +1086,10 @@ public struct StatementArguments: Hashable {
         }
         self.init(initDictionary)
     }
-    
-    
+
+
     // MARK: Adding arguments
-    
+
     /// Appends statement arguments.
     ///
     /// Positional arguments are concatenated:
@@ -1153,7 +1146,7 @@ public struct StatementArguments: Hashable {
         }
         return replacedValues
     }
-    
+
     /// Creates a new `StatementArguments` by extending the left-hand size
     /// arguments with the right-hand side arguments.
     ///
@@ -1201,7 +1194,7 @@ public struct StatementArguments: Hashable {
         lhs += rhs
         return lhs
     }
-    
+
     /// Creates a new `StatementArguments` by extending the left-hand size
     /// arguments with the right-hand side arguments.
     ///
@@ -1247,7 +1240,7 @@ public struct StatementArguments: Hashable {
         _ = lhs.append(contentsOf: rhs)
         return lhs
     }
-    
+
     /// Extends the left-hand size arguments with the right-hand side arguments.
     ///
     /// Positional arguments are concatenated:
@@ -1300,10 +1293,10 @@ public struct StatementArguments: Hashable {
             replacedValues.isEmpty,
             "already defined statement argument: \(replacedValues.keys.joined(separator: ", "))")
     }
-    
-    
+
+
     // MARK: Not Public
-    
+
     mutating func extractBindings(
         forStatement statement: Statement,
         allowingRemainingValues: Bool)

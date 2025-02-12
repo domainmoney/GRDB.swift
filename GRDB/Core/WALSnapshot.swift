@@ -1,12 +1,5 @@
 #if SQLITE_ENABLE_SNAPSHOT || (!GRDBCUSTOMSQLITE && !GRDBCIPHER)
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 /// An instance of WALSnapshot records the state of a WAL mode database for some
 /// specific point in history.
@@ -33,7 +26,7 @@ final class WALSnapshot: @unchecked Sendable {
     // @unchecked because sqlite3_snapshot has no threading requirements.
     // <https://www.sqlite.org/c3ref/snapshot.html>
     let sqliteSnapshot: UnsafeMutablePointer<sqlite3_snapshot>
-    
+
     init(_ db: Database) throws {
         var sqliteSnapshot: UnsafeMutablePointer<sqlite3_snapshot>?
         let code = withUnsafeMutablePointer(to: &sqliteSnapshot) {
@@ -55,14 +48,14 @@ final class WALSnapshot: @unchecked Sendable {
             // >    on a wal mode database with no wal file immediately
             // >    after it is first opened. At least one transaction must
             // >    be written to it first.
-            
+
             // Test condition 1:
             if sqlite3_get_autocommit(db.sqliteConnection) != 0 {
                 throw DatabaseError(resultCode: code, message: """
                     Can't create snapshot because database is in autocommit mode.
                     """)
             }
-            
+
             // Test condition 2:
             if let journalMode = try? String.fetchOne(db, sql: "PRAGMA journal_mode"),
                journalMode != "wal"
@@ -71,7 +64,7 @@ final class WALSnapshot: @unchecked Sendable {
                     Can't create snapshot because database is not in WAL mode.
                     """)
             }
-            
+
             // Condition 3 can't happen because GRDB only calls this
             // initializer from read transactions.
             //
@@ -85,11 +78,11 @@ final class WALSnapshot: @unchecked Sendable {
         }
         self.sqliteSnapshot = sqliteSnapshot
     }
-    
+
     deinit {
         sqlite3_snapshot_free(sqliteSnapshot)
     }
-    
+
     /// Compares two WAL snapshots.
     ///
     /// `a.compare(b) < 0` iff a is older than b.

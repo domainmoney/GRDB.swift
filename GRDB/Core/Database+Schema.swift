@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 extension Database {
     /// A cache for the available database schemas.
@@ -13,10 +6,10 @@ extension Database {
         /// The available schema identifiers, in the order of SQLite resolution:
         /// temp, main, then attached databases.
         var schemaIdentifiers: [SchemaIdentifier]?
-        
+
         /// The schema cache for each identifier.
         fileprivate var schemas: [SchemaIdentifier: DatabaseSchemaCache] = [:]
-        
+
         /// The schema cache for a given identifier
         subscript(schemaID: SchemaIdentifier) -> DatabaseSchemaCache { // internal so that it can be tested
             get {
@@ -26,24 +19,24 @@ extension Database {
                 schemas[schemaID] = newValue
             }
         }
-        
+
         mutating func clear() {
             schemaIdentifiers = nil
             schemas.removeAll()
         }
     }
-    
+
     /// An SQLite schema. See <https://sqlite.org/lang_naming.html>
     enum SchemaIdentifier: Hashable {
         /// The main database
         case main
-        
+
         /// The temp database
         case temp
-        
+
         /// An attached database: <https://sqlite.org/lang_attach.html>
         case attached(String)
-        
+
         /// The name of the schema in SQL queries.
         ///
         /// For example:
@@ -57,7 +50,7 @@ extension Database {
             case let .attached(name): return name
             }
         }
-        
+
         /// The name of the master sqlite table
         var masterTableName: String { // swiftlint:disable:this inclusive_language
             switch self {
@@ -66,7 +59,7 @@ extension Database {
             case let .attached(name): return "\(name).sqlite_master"
             }
         }
-        
+
         /// The name of the master sqlite table, without the schema name.
         var unqualifiedMasterTableName: String { // swiftlint:disable:this inclusive_language
             switch self {
@@ -75,15 +68,15 @@ extension Database {
             }
         }
     }
-    
+
     /// The identifier of a database table or view.
     struct TableIdentifier {
         /// The SQLite schema
         var schemaID: SchemaIdentifier
-        
+
         /// The table or view name
         var name: String
-        
+
         /// Returns the receiver, quoted for safe insertion as an identifier in
         /// an SQL query.
         ///
@@ -93,9 +86,9 @@ extension Database {
             "\(schemaID.sql).\(name.quotedDatabaseIdentifier)"
         }
     }
-    
+
     // MARK: - Database Schema
-    
+
     /// Returns the current schema version (`PRAGMA schema_version`).
     ///
     /// For example:
@@ -110,7 +103,7 @@ extension Database {
     public func schemaVersion() throws -> Int32 {
         try Int32.fetchOne(internalCachedStatement(sql: "PRAGMA schema_version"))!
     }
-    
+
     /// Clears the database schema cache.
     ///
     /// If the database schema is modified by another SQLite connection to the
@@ -119,10 +112,10 @@ extension Database {
     public func clearSchemaCache() {
         // TODO: can't we automatically clear the cache for writer connection,
         // just as we do for DatabasePool reader connections?
-        
+
         SchedulingWatchdog.preconditionValidQueue(self)
         schemaCache.clear()
-        
+
         // We also clear statement cache despite the automatic statement
         // recompilation (see https://www.sqlite.org/c3ref/prepare.html)
         // because the automatic statement recompilation only happens a
@@ -130,7 +123,7 @@ extension Database {
         internalStatementCache.clear()
         publicStatementCache.clear()
     }
-    
+
     /// Clears the database schema cache if the database schema has changed
     /// since this method was last called.
     func clearSchemaCacheIfNeeded() throws {
@@ -144,14 +137,14 @@ extension Database {
             clearSchemaCache()
         }
     }
-    
+
     /// The list of database schemas, in the order of SQLite resolution:
     /// temp, main, then attached databases.
     func schemaIdentifiers() throws -> [SchemaIdentifier] {
         if let schemaIdentifiers = schemaCache.schemaIdentifiers {
             return schemaIdentifiers
         }
-        
+
         var schemaIdentifiers = try Array(Row
             .fetchCursor(self, sql: "PRAGMA database_list")
             .map { row -> SchemaIdentifier in
@@ -161,19 +154,19 @@ extension Database {
                 case let other: return .attached(other)
                 }
             })
-        
+
         // Temp schema shadows all other schemas: put it first
         if let tempIdx = schemaIdentifiers.firstIndex(of: .temp) {
             schemaIdentifiers.swapAt(tempIdx, 0)
         }
-        
+
         schemaCache.schemaIdentifiers = schemaIdentifiers
         return schemaIdentifiers
     }
-    
+
     /// The `SchemaIdentifier` named `schemaName` if it exists.
     ///
-    /// - throws: A ``DatabaseError`` whenever an SQLite error occurs, or 
+    /// - throws: A ``DatabaseError`` whenever an SQLite error occurs, or
     /// if no such schema exists.
     private func schemaIdentifier(named schemaName: String) throws -> SchemaIdentifier {
         let allIdentifiers = try schemaIdentifiers()
@@ -183,7 +176,7 @@ extension Database {
             throw DatabaseError.noSuchSchema(schemaName)
         }
     }
-    
+
 #if GRDBCUSTOMSQLITE || GRDBCIPHER
     /// Returns information about a table or a view
     func table(_ tableName: String) throws -> TableInfo? {
@@ -194,7 +187,7 @@ extension Database {
         }
         return nil
     }
-    
+
     /// Returns information about a table or a view
     func table(for table: TableIdentifier) throws -> TableInfo? {
         // Maybe SQLCipher is too old: check actual version
@@ -212,7 +205,7 @@ extension Database {
         }
         return nil
     }
-    
+
     /// Returns information about a table or a view
     @available(iOS 15.4, macOS 12.4, tvOS 15.4, watchOS 8.5, *) // SQLite 3.37+
     func table(for table: TableIdentifier) throws -> TableInfo? {
@@ -223,11 +216,11 @@ extension Database {
     private func _table(for table: TableIdentifier) throws -> TableInfo? {
         assert(sqlite3_libversion_number() >= 3037000, "SQLite 3.37+ required")
         SchedulingWatchdog.preconditionValidQueue(self)
-        
+
         if let tableInfo = schemaCache[table.schemaID].table(table.name) {
             return tableInfo.value
         }
-        
+
         guard let tableInfo = try TableInfo
             .fetchOne(self, sql: "PRAGMA \(table.schemaID.sql).table_list(\(table.name.quotedDatabaseIdentifier))")
         else {
@@ -235,11 +228,11 @@ extension Database {
             schemaCache[table.schemaID].set(tableInfo: .missing, forTable: table.name)
             return nil
         }
-        
+
         schemaCache[table.schemaID].set(tableInfo: .value(tableInfo), forTable: table.name)
         return tableInfo
     }
-    
+
     /// Returns whether a table exists
     ///
     /// When `schemaName` is not specified, the result is true if any known
@@ -262,16 +255,16 @@ extension Database {
         if let schemaName {
             return try exists(type: .table, name: name, in: schemaName)
         }
-        
+
         return try schemaIdentifiers().contains {
             try exists(type: .table, name: name, in: $0)
         }
     }
-    
+
     private func tableExists(_ table: TableIdentifier) throws -> Bool {
         try exists(type: .table, name: table.name, in: table.schemaID)
     }
-    
+
     /// Returns whether a table is an internal SQLite table.
     ///
     /// Those are tables whose name begins with `sqlite_` and `pragma_`.
@@ -286,14 +279,14 @@ extension Database {
         // > "sqlite_".
         tableName.starts(with: "sqlite_") || tableName.starts(with: "pragma_")
     }
-        
+
     /// Returns whether a table is an internal GRDB table.
     ///
     /// Those are tables whose name begins with `grdb_`.
     public static func isGRDBInternalTable(_ tableName: String) -> Bool {
         tableName.starts(with: "grdb_")
     }
-    
+
     /// Returns whether a view exists, in the main or temp schema, or in an
     /// attached database.
     ///
@@ -317,12 +310,12 @@ extension Database {
         if let schemaName {
             return try exists(type: .view, name: name, in: schemaName)
         }
-        
+
         return try schemaIdentifiers().contains {
             try exists(type: .view, name: name, in: $0)
         }
     }
-    
+
     /// Returns whether a trigger exists, in the main or temp schema, or in an
     /// attached database.
     ///
@@ -346,12 +339,12 @@ extension Database {
         if let schemaName {
             return try exists(type: .trigger, name: name, in: schemaName)
         }
-        
+
         return try schemaIdentifiers().contains {
             try exists(type: .trigger, name: name, in: $0)
         }
     }
-    
+
     /// Checks if an entity exists in a given schema
     ///
     /// This is checking for the existence of the entity specified by
@@ -368,13 +361,13 @@ extension Database {
             throw DatabaseError.noSuchSchema(schemaName)
         }
     }
-    
+
     private func exists(type: SchemaObjectType, name: String, in schemaID: SchemaIdentifier) throws -> Bool {
         // SQLite identifiers are case-insensitive, case-preserving:
         // http://www.alberton.info/dbms_identifiers_and_case_sensitivity.html
         try schema(schemaID).containsObjectNamed(name, ofType: type)
     }
-    
+
     /// The primary key for table named `tableName`.
     ///
     /// All tables have a primary key, even when it is not explicit. When a
@@ -400,7 +393,7 @@ extension Database {
         if let schemaName {
             return try introspect(tableNamed: tableName, inSchemaNamed: schemaName, using: primaryKey(_:))
         }
-        
+
         for schemaIdentifier in try schemaIdentifiers() {
             if let result = try primaryKey(TableIdentifier(schemaID: schemaIdentifier, name: tableName)) {
                 return result
@@ -408,7 +401,7 @@ extension Database {
         }
         throw DatabaseError.noSuchTable(tableName)
     }
-    
+
     /// Returns the name of the single-column primary key.
     ///
     /// A fatal error is raised if the primary key has several columns, or
@@ -438,21 +431,21 @@ extension Database {
             }
         }
     }
-    
+
     /// Returns nil if table does not exist
     private func primaryKey(_ table: TableIdentifier) throws -> PrimaryKeyInfo? {
         SchedulingWatchdog.preconditionValidQueue(self)
-        
+
         if let primaryKey = schemaCache[table.schemaID].primaryKey(table.name) {
             return primaryKey.value
         }
-        
+
         if try !tableExists(table) {
             // Views, CTEs, etc.
             schemaCache[table.schemaID].set(primaryKey: .missing, forTable: table.name)
             return nil
         }
-        
+
         // https://www.sqlite.org/pragma.html
         //
         // > PRAGMA database.table_info(table-name);
@@ -476,18 +469,18 @@ extension Database {
         // 0   | id    | INTEGER | 0       | NULL       | 1  |
         // 1   | name  | TEXT    | 0       | NULL       | 0  |
         // 2   | score | INTEGER | 0       | NULL       | 0  |
-        
+
         guard let columns = try self.columns(in: table) else {
             // table does not exist
             schemaCache[table.schemaID].set(primaryKey: .missing, forTable: table.name)
             return nil
         }
-        
+
         let primaryKey: PrimaryKeyInfo
         let pkColumns = columns
             .filter { $0.primaryKeyIndex > 0 }
             .sorted { $0.primaryKeyIndex < $1.primaryKeyIndex }
-        
+
         switch pkColumns.count {
         case 0:
             // No explicit primary key => primary key is hidden rowID column
@@ -495,7 +488,7 @@ extension Database {
         case 1:
             // Single column
             let pkColumn = pkColumns[0]
-            
+
             // https://www.sqlite.org/lang_createtable.html:
             //
             // > With one exception noted below, if a rowid table has a primary
@@ -525,24 +518,24 @@ extension Database {
             // Multi-columns primary key
             primaryKey = try .regular(pkColumns, tableHasRowID: tableHasRowID(table))
         }
-        
+
         schemaCache[table.schemaID].set(primaryKey: .value(primaryKey), forTable: table.name)
         return primaryKey
     }
-    
+
     /// Returns whether the column identifies the rowid column
     func columnIsRowID(_ column: String, of tableName: String) throws -> Bool {
         let pk = try primaryKey(tableName)
         return pk.rowIDColumn == column || (pk.tableHasRowID && column.uppercased() == "ROWID")
     }
-    
+
     /// Returns whether the table has a rowid column.
     ///
     /// - precondition: table exists.
     private func tableHasRowID(_ table: TableIdentifier) throws -> Bool {
         // No need to cache the result, because this information feeds
         // `PrimaryKeyInfo`, which is cached.
-        
+
         // Prefer PRAGMA table_list if available
 #if GRDBCUSTOMSQLITE || GRDBCIPHER
         // Maybe SQLCipher is too old: check actual version
@@ -554,7 +547,7 @@ extension Database {
             return try self.table(for: table)!.hasRowID
         }
 #endif
-        
+
         // To check if the table has a rowid, we compile a statement that
         // selects the `rowid` column. If compilation fails, we assume that the
         // table is WITHOUT ROWID. This is not a very robust test (users may
@@ -576,7 +569,7 @@ extension Database {
         defer { sqlite3_finalize(statement) }
         return code == SQLITE_OK
     }
-    
+
     /// The indexes on table named `tableName`.
     ///
     /// For example:
@@ -612,7 +605,7 @@ extension Database {
         if let schemaName {
             return try introspect(tableNamed: tableName, inSchemaNamed: schemaName, using: indexes(on:))
         }
-        
+
         for schemaIdentifier in try schemaIdentifiers() {
             if let result = try indexes(on: TableIdentifier(schemaID: schemaIdentifier, name: tableName)) {
                 return result
@@ -620,13 +613,13 @@ extension Database {
         }
         throw DatabaseError.noSuchTable(tableName)
     }
-    
+
     /// Returns nil if table does not exist
     private func indexes(on table: TableIdentifier) throws -> [IndexInfo]? {
         if let indexes = schemaCache[table.schemaID].indexes(on: table.name) {
             return indexes.value
         }
-        
+
         let indexes = try Row
             // [seq:0 name:"index" unique:0 origin:"c" partial:0]
             .fetchAll(self, sql: "PRAGMA \(table.schemaID.sql).index_list(\(table.name.quotedDatabaseIdentifier))")
@@ -634,7 +627,7 @@ extension Database {
                 let indexName: String = row[1]
                 let unique: Bool = row[2]
                 let origin: IndexInfo.Origin = row[3]
-                
+
                 let indexInfoRows = try Row
                     // [seqno:0 cid:2 name:"column"]
                     .fetchAll(self, sql: """
@@ -657,7 +650,7 @@ extension Database {
                 }
                 return IndexInfo(name: indexName, columns: columns, isUnique: unique, origin: origin)
             }
-        
+
         if indexes.isEmpty {
             // PRAGMA index_list doesn't throw any error when table does
             // not exist. So let's check if table exists:
@@ -666,11 +659,11 @@ extension Database {
                 return nil
             }
         }
-        
+
         schemaCache[table.schemaID].set(indexes: .value(indexes), forTable: table.name)
         return indexes
     }
-    
+
     /// Returns whether a sequence of columns uniquely identifies a row.
     ///
     /// The result is true if and only if the primary key, or a unique index, is
@@ -699,7 +692,7 @@ extension Database {
     ) throws -> Bool {
         try columnsForUniqueKey(columns, in: tableName) != nil
     }
-    
+
     /// Returns the foreign keys defined on table named `tableName`.
     ///
     /// When `schemaName` is not specified, known schemas are iterated in
@@ -724,7 +717,7 @@ extension Database {
         if let schemaName {
             return try introspect(tableNamed: tableName, inSchemaNamed: schemaName, using: foreignKeys(on:))
         }
-        
+
         for schemaIdentifier in try schemaIdentifiers() {
             if let result = try foreignKeys(on: TableIdentifier(schemaID: schemaIdentifier, name: tableName)) {
                 return result
@@ -732,13 +725,13 @@ extension Database {
         }
         throw DatabaseError.noSuchTable(tableName)
     }
-    
+
     /// Returns nil if table does not exist
     private func foreignKeys(on table: TableIdentifier) throws -> [ForeignKeyInfo]? {
         if let foreignKeys = schemaCache[table.schemaID].foreignKeys(on: table.name) {
             return foreignKeys.value
         }
-        
+
         var rawForeignKeys: [(
             id: Int,
             destinationTable: String,
@@ -754,7 +747,7 @@ extension Database {
             let table: String = row[2]
             let origin: String = row[3]
             let destination: String? = row[4]
-            
+
             if previousId == id {
                 rawForeignKeys[rawForeignKeys.count - 1]
                     .mapping
@@ -765,7 +758,7 @@ extension Database {
                 previousId = id
             }
         }
-        
+
         if rawForeignKeys.isEmpty {
             // PRAGMA foreign_key_list doesn't throw any error when table does
             // not exist. So let's check if table exists:
@@ -774,12 +767,12 @@ extension Database {
                 return nil
             }
         }
-        
+
         let foreignKeys = try rawForeignKeys.map { (id, destinationTable, columnMapping) -> ForeignKeyInfo in
             let orderedMapping = columnMapping
                 .sorted { $0.seq < $1.seq }
                 .map { (origin: $0.origin, destination: $0 .destination) }
-            
+
             let completeMapping: [(origin: String, destination: String)]
             if orderedMapping.contains(where: { (_, destination) in destination == nil }) {
                 let pk = try primaryKey(destinationTable)
@@ -793,16 +786,16 @@ extension Database {
             }
             return ForeignKeyInfo(id: id, destinationTable: destinationTable, mapping: completeMapping)
         }
-        
+
         schemaCache[table.schemaID].set(foreignKeys: .value(foreignKeys), forTable: table.name)
         return foreignKeys
     }
-    
+
     /// Returns a cursor over foreign key violations in the database.
     public func foreignKeyViolations() throws -> RecordCursor<ForeignKeyViolation> {
         try ForeignKeyViolation.fetchCursor(self, sql: "PRAGMA foreign_key_check")
     }
-    
+
     /// Returns a cursor over foreign key violations in the table.
     ///
     /// When `schemaName` is not specified, known schemas are checked in
@@ -825,7 +818,7 @@ extension Database {
                 throw DatabaseError.noSuchTable(tableName)
             }
         }
-        
+
         for schemaIdentifier in try schemaIdentifiers() {
             if try exists(type: .table, name: tableName, in: schemaIdentifier) {
                 return try foreignKeyViolations(in: TableIdentifier(schemaID: schemaIdentifier, name: tableName))
@@ -833,13 +826,13 @@ extension Database {
         }
         throw DatabaseError.noSuchTable(tableName)
     }
-    
+
     private func foreignKeyViolations(in table: TableIdentifier) throws -> RecordCursor<ForeignKeyViolation> {
         try ForeignKeyViolation.fetchCursor(self, sql: """
             PRAGMA \(table.schemaID.sql).foreign_key_check(\(table.name.quotedDatabaseIdentifier))
             """)
     }
-    
+
     /// Throws an error if there exists a foreign key violation in the database.
     ///
     /// On the first foreign key violation found in the database, this method
@@ -851,7 +844,7 @@ extension Database {
     public func checkForeignKeys() throws {
         try checkForeignKeys(from: foreignKeyViolations())
     }
-    
+
     /// Throws an error if there exists a foreign key violation in the table.
     ///
     /// When `schemaName` is not specified, known schemas are checked in
@@ -870,13 +863,13 @@ extension Database {
     public func checkForeignKeys(in tableName: String, in schemaName: String? = nil) throws {
         try checkForeignKeys(from: foreignKeyViolations(in: tableName, in: schemaName))
     }
-    
+
     private func checkForeignKeys(from violations: RecordCursor<ForeignKeyViolation>) throws {
         if let violation = try violations.next() {
             throw violation.databaseError(self)
         }
     }
-    
+
     /// Returns the actual name of the database table, or nil if the table does
     /// not exist.
     ///
@@ -889,7 +882,7 @@ extension Database {
             if let result = try schema(schemaIdentifier).canonicalName(tableName, ofType: .table) {
                 return result
             }
-            
+
             // Master table (sqlite_master, sqlite_temp_master)
             // swiftlint:disable:next inclusive_language
             let masterTableName = schemaIdentifier.unqualifiedMasterTableName
@@ -899,7 +892,7 @@ extension Database {
         }
         return nil
     }
-    
+
     func schema(_ schemaID: SchemaIdentifier) throws -> SchemaInfo {
         if let schemaInfo = schemaCache[schemaID].schemaInfo {
             return schemaInfo
@@ -908,7 +901,7 @@ extension Database {
         schemaCache[schemaID].schemaInfo = schemaInfo
         return schemaInfo
     }
-    
+
     /// Attempts to perform a table introspection function on a given
     /// table and schema
     ///
@@ -931,7 +924,7 @@ extension Database {
 }
 
 extension Database {
-    
+
     /// Returns the columns in a table or a view.
     ///
     /// When `schemaName` is not specified, known schemas are iterated in
@@ -956,7 +949,7 @@ extension Database {
         if let schemaName {
             return try introspect(tableNamed: tableName, inSchemaNamed: schemaName, using: columns(in:))
         }
-        
+
         for schemaIdentifier in try schemaIdentifiers() {
             if let result = try columns(in: TableIdentifier(schemaID: schemaIdentifier, name: tableName)) {
                 return result
@@ -964,13 +957,13 @@ extension Database {
         }
         throw DatabaseError.noSuchTable(tableName)
     }
-    
+
     /// Returns nil if table does not exist
     private func columns(in table: TableIdentifier) throws -> [ColumnInfo]? {
         if let columns = schemaCache[table.schemaID].columns(in: table.name) {
             return columns.value
         }
-        
+
         // https://www.sqlite.org/pragma.html
         //
         // > PRAGMA database.table_info(table-name);
@@ -1035,11 +1028,11 @@ extension Database {
             schemaCache[table.schemaID].set(columns: .missing, forTable: table.name)
             return nil
         }
-        
+
         schemaCache[table.schemaID].set(columns: .value(columns), forTable: table.name)
         return columns
     }
-    
+
     /// If there exists a unique key that contains those columns, this method
     /// returns the columns of the unique key, ordered as the matching index (or
     /// primary key). The case of returned columns is not guaranteed to match
@@ -1053,18 +1046,18 @@ extension Database {
             // Don't hit the database for trivial case
             return nil
         }
-        
+
         // Check rowid
         let primaryKey = try self.primaryKey(tableName)
         if primaryKey.tableHasRowID && lowercasedColumns == ["rowid"] {
             return ["rowid"]
         }
-        
+
         // Check primaryKey
         if Set(primaryKey.columns.map { $0.lowercased() }).isSubset(of: lowercasedColumns) {
             return primaryKey.columns
         }
-        
+
         // Check unique indexes
         let matchingIndex = try indexes(on: tableName).first { index in
             index.isUnique && Set(index.columns.map { $0.lowercased() }).isSubset(of: lowercasedColumns)
@@ -1072,11 +1065,11 @@ extension Database {
         if let matchingIndex {
             return matchingIndex.columns
         }
-        
+
         // No matching unique key found
         return nil
     }
-    
+
     /// Returns the columns to check for NULL in order to check if the row exist.
     ///
     /// The returned array is never empty.
@@ -1122,10 +1115,10 @@ extension Database {
 public struct ColumnInfo: FetchableRecord, Sendable {
     let cid: Int
     let hidden: Int?
-    
+
     /// The column name.
     public let name: String
-    
+
     /// The column data type.
     ///
     /// The casing of this string depends on the SQLite version: make sure you
@@ -1133,7 +1126,7 @@ public struct ColumnInfo: FetchableRecord, Sendable {
     ///
     /// The type is the empty string when the column has no declared type.
     public let type: String
-    
+
     /// The column data type (nil when the column has no declared type).
     ///
     /// The casing of the raw value depends on the SQLite version: make sure
@@ -1145,10 +1138,10 @@ public struct ColumnInfo: FetchableRecord, Sendable {
             return Database.ColumnType(rawValue: type)
         }
     }
-    
+
     /// A boolean value indicating if the column is constrained to be not null.
     public let isNotNull: Bool
-    
+
     /// The SQL snippet that defines the default value, if any.
     ///
     /// When nil, the column has no default value.
@@ -1179,12 +1172,12 @@ public struct ColumnInfo: FetchableRecord, Sendable {
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/lang_createtable.html#the_default_clause>.
     public let defaultValueSQL: String?
-    
+
     /// The one-based index of the column in the primary key.
     ///
     /// For columns that are not part of the primary key, it is zero.
     public let primaryKeyIndex: Int
-    
+
     public init(row: Row) {
         cid = row["cid"]
         name = row["name"]
@@ -1209,30 +1202,30 @@ public struct IndexInfo: Sendable{
     /// The origin of an index.
     public struct Origin: RawRepresentable, Equatable, DatabaseValueConvertible, Sendable {
         public var rawValue: String
-        
+
         public init(rawValue: String) {
             self.rawValue = rawValue
         }
-        
+
         /// An index created from a `CREATE INDEX` statement.
         public static let createIndex = Origin(rawValue: "c")
-        
+
         /// An index created by a `UNIQUE` constraint.
         public static let uniqueConstraint = Origin(rawValue: "u")
-        
+
         /// An index created by a `PRIMARY KEY` constraint.
         public static let primaryKeyConstraint = Origin(rawValue: "pk")
     }
-    
+
     /// The name of the index.
     public let name: String
-    
+
     /// The indexed columns.
     public let columns: [String]
-    
+
     /// A boolean value indicating if the index is unique.
     public let isUnique: Bool
-    
+
     /// The origin of the index.
     public let origin: Origin
 }
@@ -1283,21 +1276,21 @@ public struct IndexInfo: Sendable{
 public struct ForeignKeyViolation: Sendable {
     /// The name of the table that contains the foreign key.
     public var originTable: String
-    
+
     /// The rowid of the row that contains the foreign key violation.
     ///
     /// If it nil if the origin table is a `WITHOUT ROWID` table.
     public var originRowID: Int64?
-    
+
     /// The name of the table that is referred to.
     public var destinationTable: String
-    
+
     /// The id of the foreign key constraint that failed.
     ///
     /// This id matches the ``ForeignKeyInfo/id`` property in
     /// ``ForeignKeyInfo``. See ``Database/foreignKeys(on:in:)``.
     public var foreignKeyId: Int
-    
+
     /// A precise description of the foreign key violation.
     ///
     /// For example:
@@ -1316,7 +1309,7 @@ public struct ForeignKeyViolation: Sendable {
         let foreignKey = try db.foreignKeys(on: originTable).first(where: { foreignKey in
             foreignKey.id == foreignKeyId
         })
-        
+
         var description: String
         if let foreignKey {
             description = """
@@ -1327,16 +1320,16 @@ public struct ForeignKeyViolation: Sendable {
         } else {
             description = "FOREIGN KEY constraint violation - from \(originTable) to \(destinationTable)"
         }
-        
+
         if let originRow {
             description += ", in \(String(describing: originRow))"
         } else if let originRowID {
             description += ", in rowid \(originRowID)"
         }
-        
+
         return description
     }
-    
+
     /// Converts the violation into a ``DatabaseError``.
     ///
     /// The returned error has the extended code `SQLITE_CONSTRAINT_FOREIGNKEY`.
@@ -1433,29 +1426,29 @@ public struct PrimaryKeyInfo: Sendable {
     private enum Impl {
         /// The hidden rowID.
         case hiddenRowID
-        
+
         /// An INTEGER PRIMARY KEY column that aliases the Row ID.
         /// Associated string is the column name.
         case rowID(ColumnInfo)
-        
+
         /// Any primary key, but INTEGER PRIMARY KEY.
         /// Associated strings are column names.
         case regular(columnInfos: [ColumnInfo], tableHasRowID: Bool)
     }
-    
+
     private let impl: Impl
-    
+
     static func rowID(_ columnInfo: ColumnInfo) -> PrimaryKeyInfo {
         PrimaryKeyInfo(impl: .rowID(columnInfo))
     }
-    
+
     static func regular(_ columnInfos: [ColumnInfo], tableHasRowID: Bool) -> PrimaryKeyInfo {
         assert(!columnInfos.isEmpty)
         return PrimaryKeyInfo(impl: .regular(columnInfos: columnInfos, tableHasRowID: tableHasRowID))
     }
-    
+
     static let hiddenRowID = PrimaryKeyInfo(impl: .hiddenRowID)
-    
+
     /// The columns in the primary key. This array is never empty.
     public var columns: [String] {
         switch impl {
@@ -1467,7 +1460,7 @@ public struct PrimaryKeyInfo: Sendable {
             return columnInfos.map(\.name)
         }
     }
-    
+
     /// The columns in the primary key. Nil if the primary key is the
     /// hidden rowID. Never empty otherwise.
     var columnInfos: [ColumnInfo]? {
@@ -1493,7 +1486,7 @@ public struct PrimaryKeyInfo: Sendable {
             return nil
         }
     }
-    
+
     /// A boolean value indicating if the primary key is the rowid.
     public var isRowID: Bool {
         switch impl {
@@ -1505,7 +1498,7 @@ public struct PrimaryKeyInfo: Sendable {
             return false
         }
     }
-    
+
     /// A boolean value indicating if the table has a rowid.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/withoutrowid.html>
@@ -1519,7 +1512,7 @@ public struct PrimaryKeyInfo: Sendable {
             return tableHasRowID
         }
     }
-    
+
     /// The name of the fastest primary key column.
     ///
     /// Returns nil for WITHOUT ROWID tables with a multi-columns primary key
@@ -1558,18 +1551,18 @@ public struct PrimaryKeyInfo: Sendable {
 public struct ForeignKeyInfo: Sendable {
     /// The first column in the output of the `foreign_key_list` pragma.
     public var id: Int
-    
+
     /// The name of the destination table.
     public let destinationTable: String
-    
+
     /// The column to column mapping.
     public let mapping: [(origin: String, destination: String)]
-    
+
     /// The origin columns.
     public var originColumns: [String] {
         mapping.map(\.origin)
     }
-    
+
     /// The destination columns.
     public var destinationColumns: [String] {
         mapping.map(\.destination)
@@ -1580,20 +1573,20 @@ public struct ForeignKeyInfo: Sendable {
 struct TableInfo: FetchableRecord {
     struct Kind: RawRepresentable {
         var rawValue: String
-        
+
         static let table = Kind(rawValue: "table")
         static let view = Kind(rawValue: "view")
         static let shadow = Kind(rawValue: "shadow")
         static let virtual = Kind(rawValue: "virtual")
     }
-    
+
     var schemaID: Database.SchemaIdentifier
     var name: String
     var kind: Kind
     var columnCount: Int
     var hasRowID: Bool
     var strict: Bool
-    
+
     init(row: Row) throws {
         switch row[0] as String {
         case "main":
@@ -1603,7 +1596,7 @@ struct TableInfo: FetchableRecord {
         case let name:
             schemaID = .attached(name)
         }
-        
+
         name = row[1]
         kind = Kind(rawValue: row[2])
         columnCount = row[3]
@@ -1627,7 +1620,7 @@ struct SchemaObject: Hashable, FetchableRecord {
     var name: String
     var tbl_name: String?
     var sql: String?
-    
+
     init(row: Row) throws {
         // "rootpage" column is not always there: avoid using numerical indexes
         type = row["type"]
@@ -1640,7 +1633,7 @@ struct SchemaObject: Hashable, FetchableRecord {
 /// All objects in a database schema (tables, views, indexes, triggers).
 struct SchemaInfo: Equatable {
     let objects: Set<SchemaObject>
-    
+
     /// Returns whether there exists a object of given type with this name
     /// (case-insensitive).
     func containsObjectNamed(_ name: String, ofType type: SchemaObjectType) -> Bool {
@@ -1649,7 +1642,7 @@ struct SchemaInfo: Equatable {
             $0.type == type && $0.name.lowercased() == name
         }
     }
-    
+
     /// Returns the canonical name of the object:
     ///
     ///     try db.execute(sql: "CREATE TABLE FooBar (...)")
@@ -1660,7 +1653,7 @@ struct SchemaInfo: Equatable {
             .first { $0.type == type && $0.name.lowercased() == name }?
             .name
     }
-    
+
     func filter(_ isIncluded: (SchemaObject) -> Bool) -> Self {
         SchemaInfo(objects: objects.filter(isIncluded))
     }

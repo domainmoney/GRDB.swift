@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -30,15 +23,15 @@ public struct DebugDumpFormat: Sendable {
     /// A boolean value indicating if column labels are printed as the first
     /// line of output.
     public var header: Bool
-    
+
     /// The separator between values.
     public var separator: String
-    
+
     /// The string to print for NULL values.
     public var nullValue: String
-    
+
     private var firstRow = true
-    
+
     /// Creates a `DebugDumpFormat`.
     ///
     /// - Parameters:
@@ -69,25 +62,25 @@ extension DebugDumpFormat: DumpFormat {
                 stream.writeln(statement.columnNames.joined(separator: separator))
             }
         }
-        
+
         let sqliteStatement = statement.sqliteStatement
         var first = true
         for index in 0..<sqlite3_column_count(sqliteStatement) {
             // Don't log GRDB columns
             let column = String(cString: sqlite3_column_name(sqliteStatement, index))
             if column.starts(with: "grdb_") { continue }
-            
+
             if first {
                 first = false
             } else {
                 stream.write(separator)
             }
-            
+
             stream.write(formattedValue(db, in: sqliteStatement, at: index))
         }
         stream.write("\n")
     }
-    
+
     public mutating func finalize(
         _ db: Database,
         statement: Statement,
@@ -95,18 +88,18 @@ extension DebugDumpFormat: DumpFormat {
     {
         firstRow = true
     }
-    
+
     private func formattedValue(_ db: Database, in sqliteStatement: SQLiteStatement, at index: CInt) -> String {
         switch sqlite3_column_type(sqliteStatement, index) {
         case SQLITE_NULL:
             return nullValue
-            
+
         case SQLITE_INTEGER:
             return Int64(sqliteStatement: sqliteStatement, index: index).description
-            
+
         case SQLITE_FLOAT:
             return Double(sqliteStatement: sqliteStatement, index: index).description
-            
+
         case SQLITE_BLOB:
             let data = Data(sqliteStatement: sqliteStatement, index: index)
             if let string = String(data: data, encoding: .utf8) {
@@ -117,10 +110,10 @@ extension DebugDumpFormat: DumpFormat {
             } else {
                 return try! data.sqlExpression.quotedSQL(db)
             }
-            
+
         case SQLITE_TEXT:
             return String(sqliteStatement: sqliteStatement, index: index)
-            
+
         default:
             return ""
         }

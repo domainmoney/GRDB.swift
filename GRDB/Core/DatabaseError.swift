@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -15,12 +8,12 @@ import Foundation
 public struct ResultCode: RawRepresentable, Equatable {
     /// The raw SQLite result code.
     public let rawValue: CInt
-    
+
     /// Creates a `ResultCode` from a raw SQLite result code.
     public init(rawValue: CInt) {
         self.rawValue = rawValue
     }
-    
+
     /// A primary result code limited to the least significant 8 bits.
     ///
     /// For example:
@@ -32,9 +25,9 @@ public struct ResultCode: RawRepresentable, Equatable {
     public var primaryResultCode: ResultCode {
         ResultCode(rawValue: rawValue & 0xFF)
     }
-    
+
     var isPrimary: Bool { self == primaryResultCode }
-    
+
     /// Returns true if the code on the left matches the code on the right.
     ///
     /// Primary result codes match themselves and their extended result codes,
@@ -56,10 +49,10 @@ public struct ResultCode: RawRepresentable, Equatable {
             return pattern == code
         }
     }
-    
+
     // Primary Result codes
     // https://www.sqlite.org/rescode.html#primary_result_code_list
-    
+
     // swiftlint:disable operator_usage_whitespace
     public static let SQLITE_OK           = ResultCode(rawValue: 0)   // Successful result
     public static let SQLITE_ERROR        = ResultCode(rawValue: 1)   // SQL error or missing database
@@ -93,10 +86,10 @@ public struct ResultCode: RawRepresentable, Equatable {
     public static let SQLITE_ROW          = ResultCode(rawValue: 100) // sqlite3_step() has another row ready
     public static let SQLITE_DONE         = ResultCode(rawValue: 101) // sqlite3_step() has finished executing
     // swiftlint:enable operator_usage_whitespace
-    
+
     // Extended Result Code
     // https://www.sqlite.org/rescode.html#extended_result_code_list
-    
+
     // swiftlint:disable operator_usage_whitespace line_length
     public static let SQLITE_ERROR_MISSING_COLLSEQ   = ResultCode(rawValue: (SQLITE_ERROR.rawValue | (1<<8)))
     public static let SQLITE_ERROR_RETRY             = ResultCode(rawValue: (SQLITE_ERROR.rawValue | (2<<8)))
@@ -205,7 +198,7 @@ extension ResultCode: CustomStringConvertible {
     var errorString: String? {
         String(cString: sqlite3_errstr(rawValue))
     }
-    
+
     public var description: String {
         if let errorString {
             return "\(rawValue) (\(errorString))"
@@ -226,7 +219,7 @@ extension ResultCode: Sendable { }
 ///     try player.insert(db)
 /// } catch let error as DatabaseError {
 ///     print(error) // prints debugging information
-///     
+///
 ///     switch error {
 ///     case DatabaseError.SQLITE_CONSTRAINT_FOREIGNKEY:
 ///         // foreign key constraint error
@@ -306,7 +299,7 @@ public struct DatabaseError: Error {
     public var resultCode: ResultCode {
         extendedResultCode.primaryResultCode
     }
-    
+
     /// The SQLite extended error code.
     ///
     /// For example:
@@ -333,19 +326,19 @@ public struct DatabaseError: Error {
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/rescode.html>
     public let extendedResultCode: ResultCode
-    
+
     /// The SQLite error message.
     public let message: String?
-    
+
     /// The SQL query that yielded the error.
     public let sql: String?
-    
+
     /// The query arguments that yielded the error.
     public let arguments: StatementArguments?
-    
+
     /// See Configuration.publicStatementArguments
     var publicStatementArguments: Bool
-    
+
     /// Creates a `DatabaseError`.
     ///
     /// - parameters:
@@ -369,7 +362,7 @@ public struct DatabaseError: Error {
         self.arguments = arguments
         self.publicStatementArguments = publicStatementArguments
     }
-    
+
     /// Creates a Database Error with a raw CInt result code.
     ///
     /// This initializer is not public because library user is not supposed to
@@ -381,7 +374,7 @@ public struct DatabaseError: Error {
             message: message,
             sql: sql)
     }
-    
+
     /// Creates a Database Error with a raw CInt result code.
     ///
     /// This initializer is not public because library user is not supposed to
@@ -401,11 +394,11 @@ public struct DatabaseError: Error {
             arguments: arguments,
             publicStatementArguments: publicStatementArguments)
     }
-    
+
     static func noSuchTable(_ tableName: String) -> Self {
         DatabaseError(message: "no such table: \(tableName)")
     }
-    
+
     static func noSuchSchema(_ schemaName: String) -> Self {
         DatabaseError(message: "no such schema: \(schemaName)")
     }
@@ -415,7 +408,7 @@ extension DatabaseError {
     static func connectionIsClosed() -> Self {
         DatabaseError(resultCode: .SQLITE_MISUSE, message: "Connection is closed")
     }
-    
+
     static func snapshotIsLost() -> Self {
         DatabaseError(resultCode: .SQLITE_ABORT, message: "Snapshot is lost.")
     }
@@ -573,7 +566,7 @@ extension DatabaseError: CustomStringConvertible {
         }
         return description
     }
-    
+
     /// The error description, where bound parameters, if present, are visible.
     ///
     /// For example:
@@ -608,12 +601,12 @@ extension DatabaseError: CustomNSError {
     ///
     /// Returns `GRDB.DatabaseError`.
     public static var errorDomain: String { "GRDB.DatabaseError" }
-    
+
     /// Part of the `CustomNSError` conformance.
     ///
     /// Returns the ``extendedResultCode``.
     public var errorCode: Int { Int(extendedResultCode.rawValue) }
-    
+
     /// Part of the `CustomNSError` conformance.
     public var errorUserInfo: [String: Any] {
         var userInfo = [NSLocalizedDescriptionKey: description]

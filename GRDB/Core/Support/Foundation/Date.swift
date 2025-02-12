@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -18,7 +11,7 @@ extension NSDate: DatabaseValueConvertible {
     public var databaseValue: DatabaseValue {
         (self as Date).databaseValue
     }
-    
+
     /// Creates an `NSDate` with the specified database value.
     ///
     /// If the database value contains a number, that number is interpreted as a
@@ -48,7 +41,7 @@ extension Date: DatabaseValueConvertible {
     public var databaseValue: DatabaseValue {
         storageDateFormatter.string(from: self).databaseValue
     }
-    
+
     /// Creates an `Date` with the specified database value.
     ///
     /// If the database value contains a number, that number is interpreted as a
@@ -70,7 +63,7 @@ extension Date: DatabaseValueConvertible {
         }
         return nil
     }
-    
+
     @usableFromInline
     init?(databaseDateComponents: DatabaseDateComponents) {
         guard databaseDateComponents.format.hasYMDComponents else {
@@ -82,7 +75,7 @@ extension Date: DatabaseValueConvertible {
         }
         self.init(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate)
     }
-    
+
     /// Creates a date from a [Julian Day](https://en.wikipedia.org/wiki/Julian_day).
     public init?(julianDay: Double) {
         // Conversion uses the same algorithm as SQLite: https://www.sqlite.org/src/artifact/8ec787fed4929d8c
@@ -107,7 +100,7 @@ extension Date: DatabaseValueConvertible {
         s -= hour*3600
         let minute = s/60
         second += Double(s - minute*60)
-        
+
         var dateComponents = DateComponents()
         dateComponents.year = year
         dateComponents.month = month
@@ -116,7 +109,7 @@ extension Date: DatabaseValueConvertible {
         dateComponents.minute = minute
         dateComponents.second = Int(second)
         dateComponents.nanosecond = Int((second - Double(Int(second))) * 1.0e9)
-        
+
         guard let date = UTCCalendar.date(from: dateComponents) else {
             return nil
         }
@@ -125,7 +118,7 @@ extension Date: DatabaseValueConvertible {
 }
 
 extension Date: StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:

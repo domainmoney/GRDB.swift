@@ -1,17 +1,10 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 // MARK: - Value Types
 
 /// Bool adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Bool: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -20,12 +13,12 @@ extension Bool: DatabaseValueConvertible, StatementColumnConvertible {
     public init(sqliteStatement: SQLiteStatement, index: CInt) {
         self = sqlite3_column_int64(sqliteStatement, index) != 0
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         (self ? 1 : 0).databaseValue
     }
-    
+
     /// Returns a `Bool` from the specified database value.
     ///
     /// If the database value contains an integer or a double, returns whether
@@ -88,7 +81,7 @@ extension Bool: DatabaseValueConvertible, StatementColumnConvertible {
         // So we extract bools from Integer and Real only. Integer because it is
         // the natural boolean storage class, and Real because Numeric affinity
         // store big numbers as Real.
-        
+
         switch dbValue.storage {
         case .int64(let int64):
             return (int64 != 0)
@@ -98,7 +91,7 @@ extension Bool: DatabaseValueConvertible, StatementColumnConvertible {
             return nil
         }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, self ? 1 : 0)
     }
@@ -106,7 +99,7 @@ extension Bool: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// Int adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Int: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -119,12 +112,12 @@ extension Int: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = Int(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `Int` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -137,7 +130,7 @@ extension Int: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Int? {
         Int64.fromDatabaseValue(dbValue).flatMap { Int(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -145,7 +138,7 @@ extension Int: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// Int8 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Int8: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -158,12 +151,12 @@ extension Int8: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = Int8(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `Int8` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -176,7 +169,7 @@ extension Int8: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Int8? {
         Int64.fromDatabaseValue(dbValue).flatMap { Int8(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -184,7 +177,7 @@ extension Int8: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// Int16 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Int16: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -197,12 +190,12 @@ extension Int16: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = Int16(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `Int16` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -215,7 +208,7 @@ extension Int16: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Int16? {
         Int64.fromDatabaseValue(dbValue).flatMap { Int16(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -223,7 +216,7 @@ extension Int16: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// Int32 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Int32: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -236,12 +229,12 @@ extension Int32: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = Int32(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `Int32` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -254,7 +247,7 @@ extension Int32: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Int32? {
         Int64.fromDatabaseValue(dbValue).flatMap { Int32(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -262,7 +255,7 @@ extension Int32: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// Int64 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Int64: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -271,12 +264,12 @@ extension Int64: DatabaseValueConvertible, StatementColumnConvertible {
     public init(sqliteStatement: SQLiteStatement, index: CInt) {
         self = sqlite3_column_int64(sqliteStatement, index)
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         DatabaseValue(storage: .int64(self))
     }
-    
+
     /// Returns a `Int64` from the specified database value.
     ///
     /// If the database value contains a integer, returns this integer.
@@ -297,7 +290,7 @@ extension Int64: DatabaseValueConvertible, StatementColumnConvertible {
             return nil
         }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, self)
     }
@@ -305,7 +298,7 @@ extension Int64: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// UInt adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension UInt: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -318,12 +311,12 @@ extension UInt: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = UInt(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `UInt` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -336,7 +329,7 @@ extension UInt: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> UInt? {
         Int64.fromDatabaseValue(dbValue).flatMap { UInt(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -344,7 +337,7 @@ extension UInt: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// UInt8 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension UInt8: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -357,12 +350,12 @@ extension UInt8: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = UInt8(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `UInt8` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -375,7 +368,7 @@ extension UInt8: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> UInt8? {
         Int64.fromDatabaseValue(dbValue).flatMap { UInt8(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -383,7 +376,7 @@ extension UInt8: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// UInt16 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension UInt16: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -396,12 +389,12 @@ extension UInt16: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = UInt16(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `UInt16` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -414,7 +407,7 @@ extension UInt16: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> UInt16? {
         Int64.fromDatabaseValue(dbValue).flatMap { UInt16(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -422,7 +415,7 @@ extension UInt16: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// UInt32 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension UInt32: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -435,12 +428,12 @@ extension UInt32: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = UInt32(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `UInt32` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -453,7 +446,7 @@ extension UInt32: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> UInt32? {
         Int64.fromDatabaseValue(dbValue).flatMap { UInt32(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -461,7 +454,7 @@ extension UInt32: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// UInt64 adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension UInt64: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -474,12 +467,12 @@ extension UInt64: DatabaseValueConvertible, StatementColumnConvertible {
         guard let v = UInt64(exactly: int64) else { return nil }
         self = v
     }
-    
+
     /// Returns an INTEGER database value.
     public var databaseValue: DatabaseValue {
         Int64(self).databaseValue
     }
-    
+
     /// Returns a `UInt64` from the specified database value.
     ///
     /// If the database value contains a integer representable in this type,
@@ -492,7 +485,7 @@ extension UInt64: DatabaseValueConvertible, StatementColumnConvertible {
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> UInt64? {
         Int64.fromDatabaseValue(dbValue).flatMap { UInt64(exactly: $0) }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_int64(sqliteStatement, index, Int64(self))
     }
@@ -500,7 +493,7 @@ extension UInt64: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// Double adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Double: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -509,12 +502,12 @@ extension Double: DatabaseValueConvertible, StatementColumnConvertible {
     public init(sqliteStatement: SQLiteStatement, index: CInt) {
         self = sqlite3_column_double(sqliteStatement, index)
     }
-    
+
     /// Returns a REAL database value.
     public var databaseValue: DatabaseValue {
         DatabaseValue(storage: .double(self))
     }
-    
+
     /// Returns a `Double` from the specified database value.
     ///
     /// If the database value contains a integer, returns the conversion.
@@ -532,7 +525,7 @@ extension Double: DatabaseValueConvertible, StatementColumnConvertible {
             return nil
         }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_double(sqliteStatement, index, self)
     }
@@ -540,7 +533,7 @@ extension Double: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// Float adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension Float: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -549,12 +542,12 @@ extension Float: DatabaseValueConvertible, StatementColumnConvertible {
     public init(sqliteStatement: SQLiteStatement, index: CInt) {
         self = Float(sqlite3_column_double(sqliteStatement, index))
     }
-    
+
     /// Returns a REAL database value.
     public var databaseValue: DatabaseValue {
         Double(self).databaseValue
     }
-    
+
     /// Returns a `Float` from the specified database value.
     ///
     /// If the database value contains a integer, returns the conversion.
@@ -572,7 +565,7 @@ extension Float: DatabaseValueConvertible, StatementColumnConvertible {
             return nil
         }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_double(sqliteStatement, index, Double(self))
     }
@@ -580,7 +573,7 @@ extension Float: DatabaseValueConvertible, StatementColumnConvertible {
 
 /// String adopts DatabaseValueConvertible and StatementColumnConvertible.
 extension String: DatabaseValueConvertible, StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:
@@ -589,12 +582,12 @@ extension String: DatabaseValueConvertible, StatementColumnConvertible {
     public init(sqliteStatement: SQLiteStatement, index: CInt) {
         self = String(cString: sqlite3_column_text(sqliteStatement, index)!)
     }
-    
+
     /// Returns a TEXT database value.
     public var databaseValue: DatabaseValue {
         DatabaseValue(storage: .string(self))
     }
-    
+
     /// Returns a `String` from the specified database value.
     ///
     /// If the database value contains a string, returns it.
@@ -615,11 +608,11 @@ extension String: DatabaseValueConvertible, StatementColumnConvertible {
             return nil
         }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         sqlite3_bind_text(sqliteStatement, index, self, -1, SQLITE_TRANSIENT)
     }
-    
+
     /// Calls the given closure after binding a statement argument.
     ///
     /// The binding is valid only during the execution of this method.
@@ -661,7 +654,7 @@ extension DatabaseFunction {
             }
             return string.capitalized
         }
-    
+
     /// An SQL function that calls the Swift
     /// `String.lowercased()` method.
     ///
@@ -683,7 +676,7 @@ extension DatabaseFunction {
             }
             return string.lowercased()
         }
-    
+
     /// An SQL function that calls the Swift
     /// `String.uppercased()` method.
     ///
@@ -727,8 +720,8 @@ extension DatabaseFunction {
             }
             return string.localizedCapitalized
         }
-    
-    
+
+
     /// An SQL function that calls the Foundation
     /// `String.localizedLowercase` property.
     ///
@@ -750,7 +743,7 @@ extension DatabaseFunction {
             }
             return string.localizedLowercase
         }
-    
+
     /// An SQL function that calls the Foundation
     /// `String.localizedUppercase` property.
     ///
@@ -788,7 +781,7 @@ extension DatabaseCollation {
     // Yet we're not absolutely stuck: we could register support for obsolete
     // collation names with sqlite3_collation_needed().
     // See https://www.sqlite.org/capi3ref.html#sqlite3_collation_needed
-    
+
     /// A collation that compares strings according to the built-in `==` and
     /// `<=` operators of the Swift String.
     ///
@@ -817,7 +810,7 @@ extension DatabaseCollation {
         DatabaseCollation("swiftCompare") { (lhs, rhs) in
             (lhs < rhs) ? .orderedAscending : ((lhs == rhs) ? .orderedSame : .orderedDescending)
         }
-    
+
     /// A collation that compares strings according to the Foundation
     /// `String.caseInsensitiveCompare(_:)` method.
     ///
@@ -846,7 +839,7 @@ extension DatabaseCollation {
         DatabaseCollation("swiftCaseInsensitiveCompare") { (lhs, rhs) in
             lhs.caseInsensitiveCompare(rhs)
         }
-    
+
     /// A collation that compares strings according to the Foundation
     /// `String.localizedCaseInsensitiveCompare(_:)` method.
     ///
@@ -875,7 +868,7 @@ extension DatabaseCollation {
         DatabaseCollation("swiftLocalizedCaseInsensitiveCompare") { (lhs, rhs) in
             lhs.localizedCaseInsensitiveCompare(rhs)
         }
-    
+
     /// A collation that compares strings according to the Foundation
     /// `String.localizedCompare(_:)` method.
     ///
@@ -904,7 +897,7 @@ extension DatabaseCollation {
         DatabaseCollation("swiftLocalizedCompare") { (lhs, rhs) in
             lhs.localizedCompare(rhs)
         }
-    
+
     /// A collation that compares strings according to the Foundation
     /// `String.localizedStandardCompare(_:)` method.
     ///

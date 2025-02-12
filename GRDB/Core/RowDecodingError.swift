@@ -1,24 +1,17 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 /// A key that is used to decode a value in a row
 @usableFromInline
 enum RowKey: Hashable, Sendable {
     /// A column name
     case columnName(String)
-    
+
     /// A column index
     case columnIndex(Int)
-    
+
     /// A scope
     case scope(String)
-    
+
     /// A key of prefetched rows
     case prefetchKey(String)
 }
@@ -31,21 +24,21 @@ enum RowDecodingError: Error {
         /// A description of what went wrong, for debugging purposes.
         @usableFromInline
         let debugDescription: String
-        
+
         let rowImpl: ArrayRowImpl // Sendable
-        
+
         /// The row that could not be decoded
         var row: Row { Row(impl: rowImpl) }
-        
+
         /// Nil for RowDecodingError.keyNotFound, in order to avoid redundancy
         let key: RowKey?
-        
+
         /// The SQL query
         let sql: String?
-        
+
         /// The SQL query arguments
         let statementArguments: StatementArguments?
-        
+
         init(decodingContext: RowDecodingContext, debugDescription: String) {
             self.debugDescription = debugDescription
             self.rowImpl = ArrayRowImpl(columns: decodingContext.row)
@@ -54,10 +47,10 @@ enum RowDecodingError: Error {
             self.statementArguments = decodingContext.statementArguments
         }
     }
-    
+
     case keyNotFound(RowKey, Context)
     case valueMismatch(Any.Type, Context)
-    
+
     var context: Context {
         switch self {
         case .keyNotFound(_, let context),
@@ -65,7 +58,7 @@ enum RowDecodingError: Error {
             return context
         }
     }
-    
+
     /// Convenience method that builds the
     /// `could not decode <Type> from database value <value>` error message.
     static func valueMismatch(
@@ -80,7 +73,7 @@ enum RowDecodingError: Error {
                 could not decode \(type) from database value \(databaseValue)
                 """))
     }
-    
+
     /// Convenience method that builds the
     /// `could not decode <Type> from database value <value>` error message.
     @usableFromInline
@@ -96,7 +89,7 @@ enum RowDecodingError: Error {
             context: context,
             databaseValue: DatabaseValue(sqliteStatement: sqliteStatement, index: index))
     }
-    
+
     /// Convenience method that builds the
     /// `could not decode <Type> from database value <value>` error message.
     static func valueMismatch(
@@ -110,7 +103,7 @@ enum RowDecodingError: Error {
             context: RowDecodingContext(statement: statement, index: index),
             databaseValue: DatabaseValue(sqliteStatement: statement.sqliteStatement, index: CInt(index)))
     }
-    
+
     /// Convenience method that builds the `column not found: <column>`
     /// error message.
     @usableFromInline
@@ -127,15 +120,15 @@ enum RowDecodingError: Error {
 struct RowDecodingContext {
     /// The row that is decoded
     let row: Row
-    
+
     let key: RowKey?
-    
+
     /// The SQL query
     let sql: String?
-    
+
     /// The SQL query arguments
     let statementArguments: StatementArguments?
-    
+
     @usableFromInline
     init(row: Row, key: RowKey? = nil) {
         if let statement = row.statement {
@@ -155,7 +148,7 @@ struct RowDecodingContext {
             self.statementArguments = nil
         }
     }
-    
+
     /// Convenience initializer
     @usableFromInline
     init(statement: Statement, index: Int) {
@@ -172,7 +165,7 @@ extension RowDecodingError: CustomStringConvertible {
         let context = self.context
         let row = context.row
         var chunks: [String] = []
-        
+
         if let key = context.key {
             switch key {
             case let .columnIndex(columnIndex):
@@ -180,7 +173,7 @@ extension RowDecodingError: CustomStringConvertible {
                 let columnName = row.columnNames[rowIndex]
                 chunks.append("column: \(String(reflecting: columnName))")
                 chunks.append("column index: \(columnIndex)")
-                
+
             case let .columnName(columnName):
                 if let columnIndex = row.index(forColumn: columnName) {
                     chunks.append("column: \(String(reflecting: columnName))")
@@ -188,27 +181,27 @@ extension RowDecodingError: CustomStringConvertible {
                 } else {
                     // column name is already mentioned in context.debugDescription
                 }
-                
+
             case .prefetchKey:
                 // key is already mentioned in context.debugDescription
                 break
-                
+
             case .scope:
                 // scope is already mentioned in context.debugDescription
                 break
             }
         }
-        
+
         chunks.append("row: \(row.description)")
-        
+
         if let sql = context.sql {
             chunks.append("sql: `\(sql)`")
         }
-        
+
         if let statementArguments = context.statementArguments {
             chunks.append("arguments: \(statementArguments)")
         }
-        
+
         return "\(context.debugDescription) - \(chunks.joined(separator: ", "))"
     }
 }

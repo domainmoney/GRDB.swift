@@ -1,12 +1,5 @@
 #if SQLITE_ENABLE_FTS5
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -15,11 +8,11 @@ import Foundation
 /// See the `FTS5_TOKEN_*` constants in <https://www.sqlite.org/fts5.html#custom_tokenizers>.
 public struct FTS5TokenFlags: OptionSet, Sendable {
     public let rawValue: CInt
-    
+
     public init(rawValue: CInt) {
         self.rawValue = rawValue
     }
-    
+
     /// `FTS5_TOKEN_COLOCATED`
     public static let colocated = FTS5TokenFlags(rawValue: FTS5_TOKEN_COLOCATED)
 }
@@ -44,7 +37,7 @@ public typealias FTS5WrapperTokenCallback = (_ token: String, _ flags: FTS5Token
 public protocol FTS5WrapperTokenizer: FTS5CustomTokenizer {
     /// The wrapped tokenizer
     var wrappedTokenizer: any FTS5Tokenizer { get }
-    
+
     /// Given a token produced by the wrapped tokenizer, notifies customized
     /// tokens to the `tokenCallback` function.
     ///
@@ -115,7 +108,7 @@ extension FTS5WrapperTokenizer {
                 tokenization: tokenization,
                 pText: pText,
                 nText: nText) { (customContextPointer, tokenFlags, pToken, nToken, iStart, iEnd) in
-                
+
                 // Extract token produced by wrapped tokenizer
                 guard let token = pToken.flatMap({ String(
                                                     data: Data(
@@ -126,14 +119,14 @@ extension FTS5WrapperTokenizer {
                 else {
                     return SQLITE_OK // 0 // SQLITE_OK
                 }
-                
+
                 // Extract context
                 let customContext = customContextPointer!.assumingMemoryBound(to: FTS5WrapperContext.self).pointee
                 let tokenizer = customContext.tokenizer
                 let context = customContext.context
                 let tokenization = customContext.tokenization
                 let tokenCallback = customContext.tokenCallback
-                
+
                 // Process token produced by wrapped tokenizer
                 do {
                     try tokenizer.accept(
@@ -149,7 +142,7 @@ extension FTS5WrapperTokenizer {
                                 let pToken = UnsafeMutableRawPointer(mutating: addr)
                                     .assumingMemoryBound(to: CChar.self)
                                 let nToken = CInt(buffer.count)
-                                
+
                                 // Inject token bytes into SQLite
                                 let code = tokenCallback(context, flags.rawValue, pToken, nToken, iStart, iEnd)
                                 guard code == SQLITE_OK else {
@@ -157,7 +150,7 @@ extension FTS5WrapperTokenizer {
                                 }
                             }
                         })
-                    
+
                     return SQLITE_OK
                 } catch let error as DatabaseError {
                     return error.extendedResultCode.rawValue

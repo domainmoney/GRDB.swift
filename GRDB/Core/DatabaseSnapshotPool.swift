@@ -1,12 +1,5 @@
 #if SQLITE_ENABLE_SNAPSHOT || (!GRDBCUSTOMSQLITE && !GRDBCIPHER)
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 /// A database connection that allows concurrent accesses to an unchanging
 /// database content, as it existed at the moment the snapshot was created.
@@ -79,21 +72,21 @@ import SQLite3
 /// - ``init(path:configuration:)``
 public final class DatabaseSnapshotPool {
     public let configuration: Configuration
-    
+
     /// The path to the database file.
     public let path: String
-    
+
     /// The pool of reader connections.
     /// It is constant, until close() sets it to nil.
     private var readerPool: Pool<SerializedDatabase>?
-    
+
     /// The WAL snapshot
     private let walSnapshot: WALSnapshot
-    
+
     /// A connection that prevents checkpoints and keeps the WAL snapshot valid.
     /// It is never used.
     private let snapshotHolder: DatabaseQueue
-    
+
     /// Creates a snapshot of the database.
     ///
     /// For example:
@@ -132,7 +125,7 @@ public final class DatabaseSnapshotPool {
     public init(_ db: Database, configuration: Configuration? = nil) throws {
         let path = db.path
         var configuration = Self.configure(configuration ?? db.configuration)
-        
+
         // Acquire and hold WAL snapshot
         let walSnapshot = try db.isolated(readOnly: true) {
             try WALSnapshot(db)
@@ -148,7 +141,7 @@ public final class DatabaseSnapshotPool {
                 throw DatabaseError(resultCode: code)
             }
         }
-        
+
         configuration.prepareDatabase { db in
             try db.beginTransaction(.deferred)
             try db.execute(sql: "SELECT rootpage FROM sqlite_master LIMIT 1")
@@ -157,11 +150,11 @@ public final class DatabaseSnapshotPool {
                 throw DatabaseError(resultCode: code)
             }
         }
-        
+
         self.configuration = configuration
         self.path = path
         self.walSnapshot = walSnapshot
-        
+
         readerPool = Pool(
             maximumCount: configuration.maximumReaderCount,
             qos: configuration.readQoS,
@@ -173,7 +166,7 @@ public final class DatabaseSnapshotPool {
                     purpose: "snapshot.\(index)")
             })
     }
-    
+
     /// Creates a snapshot of the database.
     ///
     /// For example:
@@ -194,7 +187,7 @@ public final class DatabaseSnapshotPool {
     /// - throws: A ``DatabaseError`` whenever an SQLite error occurs.
     public init(path: String, configuration: Configuration = Configuration()) throws {
         var configuration = Self.configure(configuration)
-        
+
         // Acquire and hold WAL snapshot
         var holderConfig = Configuration()
         holderConfig.allowsUnsafeTransactions = true
@@ -204,7 +197,7 @@ public final class DatabaseSnapshotPool {
             try db.execute(sql: "SELECT rootpage FROM sqlite_master LIMIT 1")
             return try WALSnapshot(db)
         }
-        
+
         configuration.prepareDatabase { db in
             try db.beginTransaction(.deferred)
             try db.execute(sql: "SELECT rootpage FROM sqlite_master LIMIT 1")
@@ -213,11 +206,11 @@ public final class DatabaseSnapshotPool {
                 throw DatabaseError(resultCode: code)
             }
         }
-        
+
         self.configuration = configuration
         self.path = path
         self.walSnapshot = walSnapshot
-        
+
         readerPool = Pool(
             maximumCount: configuration.maximumReaderCount,
             qos: configuration.readQoS,
@@ -229,25 +222,25 @@ public final class DatabaseSnapshotPool {
                     purpose: "snapshot.\(index)")
             })
     }
-    
+
     private static func configure(_ configuration: Configuration) -> Configuration {
         var configuration = configuration
-        
+
         // DatabaseSnapshotPool needs a non-empty pool of connections.
         GRDBPrecondition(configuration.maximumReaderCount > 0, "configuration.maximumReaderCount must be at least 1")
-        
+
         // DatabaseSnapshotPool is read-only.
         configuration.readonly = true
-        
+
         // DatabaseSnapshotPool keeps a long-lived transaction.
         configuration.allowsUnsafeTransactions = true
-        
+
         // DatabaseSnapshotPool requires the WAL mode.
         // See <https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode>
         if configuration.readonlyBusyMode == nil {
             configuration.readonlyBusyMode = .timeout(10)
         }
-        
+
         return configuration
     }
 }
@@ -258,24 +251,24 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
     public func close() throws {
         try readerPool?.barrier {
             defer { readerPool = nil }
-            
+
             try readerPool?.forEach { reader in
                 try reader.sync { try $0.close() }
             }
         }
     }
-    
+
     public func interrupt() {
         readerPool?.forEach { $0.interrupt() }
     }
-    
+
     @_disfavoredOverload // SR-15150 Async overloading in protocol implementation fails
     public func read<T>(_ value: (Database) throws -> T) throws -> T {
         GRDBPrecondition(currentReader == nil, "Database methods are not reentrant.")
         guard let readerPool else {
             throw DatabaseError.connectionIsClosed()
         }
-        
+
         let (reader, releaseReader) = try readerPool.get()
         var completion: PoolCompletion!
         defer {
@@ -292,14 +285,14 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
             }
         }
     }
-    
+
     public func read<T: Sendable>(
         _ value: @escaping @Sendable (Database) throws -> T
     ) async throws -> T {
         guard let readerPool else {
             throw DatabaseError.connectionIsClosed()
         }
-        
+
         let dbAccess = CancellableDatabaseAccess()
         return try await dbAccess.withCancellableContinuation { continuation in
             readerPool.asyncGet { result in
@@ -325,7 +318,7 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
             }
         }
     }
-    
+
     public func asyncRead(
         _ value: @escaping @Sendable (Result<Database, Error>) -> Void
     ) {
@@ -333,7 +326,7 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
             value(.failure(DatabaseError.connectionIsClosed()))
             return
         }
-        
+
         readerPool.asyncGet { result in
             do {
                 let (reader, releaseReader) = try result.get()
@@ -347,7 +340,7 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
             }
         }
     }
-    
+
     // There is no such thing as an unsafe access to a snapshot.
     // We can't provide this as a default implementation in
     // `DatabaseSnapshotReader`,  because of
@@ -357,7 +350,7 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
     ) async throws -> T {
         try await read(value)
     }
-    
+
     public func unsafeReentrantRead<T>(_ value: (Database) throws -> T) throws -> T {
         if let reader = currentReader {
             return try reader.reentrantSync { db in
@@ -372,7 +365,7 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
             return try read(value)
         }
     }
-    
+
     public func _add<Reducer>(
         observation: ValueObservation<Reducer>,
         scheduling scheduler: some ValueObservationScheduler,
@@ -380,14 +373,14 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
     ) -> AnyDatabaseCancellable where Reducer: ValueReducer {
         _addReadOnly(observation: observation, scheduling: scheduler, onChange: onChange)
     }
-    
+
     /// Returns a reader that can be used from the current dispatch queue,
     /// if any.
     private var currentReader: SerializedDatabase? {
         guard let readerPool else {
             return nil
         }
-        
+
         var readers: [SerializedDatabase] = []
         readerPool.forEach { reader in
             // We can't check for reader.onValidQueue here because
@@ -396,7 +389,7 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
             // it below.
             readers.append(reader)
         }
-        
+
         // Now the readers array contains some readers. The pool readers may
         // already be different, because some other thread may have started
         // a new read, for example.
@@ -406,11 +399,11 @@ extension DatabaseSnapshotPool: DatabaseSnapshotReader {
         // in the pool, and thus still relevant for our check:
         return readers.first { $0.onValidQueue }
     }
-    
+
     private func poolCompletion(_ db: Database) -> PoolCompletion {
         snapshotIsLost(db) ? .discard : .reuse
     }
-    
+
     private func snapshotIsLost(_ db: Database) -> Bool {
         do {
             let currentSnapshot = try WALSnapshot(db)

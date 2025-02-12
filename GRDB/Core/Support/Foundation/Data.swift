@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -19,12 +12,12 @@ extension Data: DatabaseValueConvertible, StatementColumnConvertible {
             self.init()
         }
     }
-    
+
     /// Returns a BLOB database value.
     public var databaseValue: DatabaseValue {
         DatabaseValue(storage: .blob(self))
     }
-    
+
     /// Returns a `Data` from the specified database value.
     ///
     /// If the database value contains a data blob, returns it.
@@ -45,13 +38,13 @@ extension Data: DatabaseValueConvertible, StatementColumnConvertible {
             return nil
         }
     }
-    
+
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
         withUnsafeBytes {
             sqlite3_bind_blob(sqliteStatement, index, $0.baseAddress, CInt($0.count), SQLITE_TRANSIENT)
         }
     }
-    
+
     /// Calls the given closure after binding a statement argument.
     ///
     /// The binding is valid only during the execution of this method.

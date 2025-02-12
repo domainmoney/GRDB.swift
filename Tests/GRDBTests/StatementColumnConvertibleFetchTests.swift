@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import XCTest
 import GRDB
@@ -14,18 +7,18 @@ import GRDB
 private struct Fetched: DatabaseValueConvertible, StatementColumnConvertible, Hashable {
     let int: Int
     let fast: Bool
-    
+
     init(int: Int, fast: Bool) {
         self.int = int
         self.fast = fast
     }
-    
+
     init(sqliteStatement: SQLiteStatement, index: CInt) {
         self.init(int: Int(sqlite3_column_int64(sqliteStatement, index)), fast: true)
     }
-    
+
     var databaseValue: DatabaseValue { int.databaseValue }
-    
+
     static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Fetched? {
         guard let int = Int.fromDatabaseValue(dbValue) else {
             return nil
@@ -35,13 +28,13 @@ private struct Fetched: DatabaseValueConvertible, StatementColumnConvertible, Ha
 }
 
 class StatementColumnConvertibleFetchTests: GRDBTestCase {
-    
+
     func testSlowConversion() {
         let slow = Fetched.fromDatabaseValue(0.databaseValue)!
         XCTAssertEqual(slow.int, 0)
         XCTAssertEqual(slow.fast, false)
     }
-    
+
     func testRowExtraction() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -76,7 +69,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testScopedRowExtraction() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -147,7 +140,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testFetchCursorWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -158,7 +151,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssertTrue(fetched.fast)
         }
     }
-    
+
     func testFetchCursorStepFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -258,7 +251,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testFetchAllWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -268,7 +261,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssertTrue(array[0].fast)
         }
     }
-    
+
     func testFetchAllStepFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -361,7 +354,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testFetchSetWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -371,7 +364,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssertTrue(set.first!.fast)
         }
     }
-    
+
     func testFetchSetStepFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -510,7 +503,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testFetchOneWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -520,7 +513,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssertTrue(fetched!.fast)
         }
     }
-    
+
     func testFetchOneStepFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -619,7 +612,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testOptionalFetchCursorWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -630,7 +623,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssert(fetched!.fast)
         }
     }
-    
+
     func testOptionalFetchCursorCompilationFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -691,7 +684,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testOptionalFetchAllWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -701,7 +694,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssert(array[0]!.fast)
         }
     }
-    
+
     func testOptionalFetchAllStepFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -767,7 +760,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testOptionalFetchSet() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -794,7 +787,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testOptionalFetchSetWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -804,7 +797,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssert(set.first!!.fast)
         }
     }
-    
+
     func testOptionalFetchSetStepFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -870,7 +863,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testOptionalFetchOne() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -949,7 +942,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testOptionalFetchOneWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -959,7 +952,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             XCTAssertTrue(fetched!!.fast)
         }
     }
-    
+
     func testOptionalFetchOneStepFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -993,7 +986,7 @@ class StatementColumnConvertibleFetchTests: GRDBTestCase {
             }
         }
     }
-    
+
     func testOptionalFetchOneCompilationFailure() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in

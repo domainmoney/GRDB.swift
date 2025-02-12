@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -60,12 +53,12 @@ public struct JSONDumpFormat: Sendable {
         encoder.dataEncodingStrategy = .base64
         return encoder
     }
-    
+
     /// The JSONEncoder that formats individual database values.
     public var encoder: JSONEncoder
-    
+
     var firstRow = true
-    
+
     /// Creates a `JSONDumpFormat`.
     ///
     /// - Parameter encoder: The JSONEncoder that formats individual
@@ -91,7 +84,7 @@ extension JSONDumpFormat: DumpFormat {
         } else {
             stream.write(",\n")
         }
-        
+
         if encoder.outputFormatting.contains(.prettyPrinted) {
             stream.write("  ")
         }
@@ -104,13 +97,13 @@ extension JSONDumpFormat: DumpFormat {
             if column.starts(with: "grdb_") {
                 continue
             }
-            
+
             if first {
                 first = false
             } else {
                 stream.write(",")
             }
-            
+
             if encoder.outputFormatting.contains(.prettyPrinted) {
                 stream.write("\n    ")
             }
@@ -123,7 +116,7 @@ extension JSONDumpFormat: DumpFormat {
         }
         stream.write("}")
     }
-    
+
     public mutating func finalize(
         _ db: Database,
         statement: Statement,
@@ -141,29 +134,29 @@ extension JSONDumpFormat: DumpFormat {
         }
         firstRow = true
     }
-    
+
     private func formattedValue(_ db: Database, in sqliteStatement: SQLiteStatement, at index: CInt) throws -> String {
         switch sqlite3_column_type(sqliteStatement, index) {
         case SQLITE_NULL:
             return "null"
-            
+
         case SQLITE_INTEGER:
             return try formattedValue(Int64(sqliteStatement: sqliteStatement, index: index))
-            
+
         case SQLITE_FLOAT:
             return try formattedValue(Double(sqliteStatement: sqliteStatement, index: index))
-            
+
         case SQLITE_BLOB:
             return try formattedValue(Data(sqliteStatement: sqliteStatement, index: index))
-            
+
         case SQLITE_TEXT:
             return try formattedValue(String(sqliteStatement: sqliteStatement, index: index))
-            
+
         default:
             return ""
         }
     }
-    
+
     private func formattedValue(_ value: some Encodable) throws -> String {
         let data = try encoder.encode(value)
         return String(decoding: data, as: UTF8.self)

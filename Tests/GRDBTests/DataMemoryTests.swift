@@ -1,17 +1,10 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import XCTest
 @testable import GRDB
 
 class DataMemoryTests: GRDBTestCase {
-    
+
     func testMemoryBehavior() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -19,12 +12,12 @@ class DataMemoryTests: GRDBTestCase {
             // For more context, see:
             // https://forums.swift.org/t/swift-5-how-to-test-data-bytesnocopydeallocator/20299/2?u=gwendal.roue
             let data = Data(repeating: 0xaa, count: 15)
-            
+
             do {
                 let rows = try Row.fetchCursor(db, sql: "SELECT ?", arguments: [data])
                 while let row = try rows.next() {
                     let blobPointer = sqlite3_column_blob(row.sqliteStatement, 0)
-                    
+
                     do {
                         // This data should be copied:
                         let copiedData: Data = row[0]
@@ -33,7 +26,7 @@ class DataMemoryTests: GRDBTestCase {
                             XCTAssertNotEqual($0.baseAddress, blobPointer)
                         }
                     }
-                    
+
                     do {
                         // This data should not be copied
                         try row.withUnsafeData(atIndex: 0) { nonCopiedData in
@@ -45,14 +38,14 @@ class DataMemoryTests: GRDBTestCase {
                     }
                 }
             }
-            
+
             do {
                 let adapter = ScopeAdapter(["nested": SuffixRowAdapter(fromIndex: 0)])
                 let rows = try Row.fetchCursor(db, sql: "SELECT ?", arguments: [data], adapter: adapter)
                 while let row = try rows.next() {
                     let blobPointer = sqlite3_column_blob(row.unadapted.sqliteStatement, 0)
                     let nestedRow = row.scopes["nested"]!
-                    
+
                     do {
                         // This data should be copied:
                         let copiedData: Data = nestedRow[0]
@@ -61,7 +54,7 @@ class DataMemoryTests: GRDBTestCase {
                             XCTAssertNotEqual($0.baseAddress, blobPointer)
                         }
                     }
-                    
+
                     do {
                         // This data should not be copied
                         try nestedRow.withUnsafeData(atIndex: 0) { nonCopiedData in
@@ -73,7 +66,7 @@ class DataMemoryTests: GRDBTestCase {
                     }
                 }
             }
-            
+
             do {
                 let row = try Row.fetchOne(db, sql: "SELECT ?", arguments: [data])!
                 let dbValue = row.first!.1 // TODO: think about exposing a (column:,databaseValue:) tuple
@@ -88,7 +81,7 @@ class DataMemoryTests: GRDBTestCase {
                                 XCTAssertEqual(nonCopiedBuffer.baseAddress, buffer.baseAddress)
                             }
                         }
-                        
+
                         do {
                             // This data should not be copied:
                             try row.withUnsafeData(atIndex: 0) { nonCopiedData in
@@ -105,7 +98,7 @@ class DataMemoryTests: GRDBTestCase {
             }
         }
     }
-    
+
     @available(*, deprecated)
     func testDeprecatedMemoryBehavior() throws {
         let dbQueue = try makeDatabaseQueue()
@@ -114,7 +107,7 @@ class DataMemoryTests: GRDBTestCase {
             // For more context, see:
             // https://forums.swift.org/t/swift-5-how-to-test-data-bytesnocopydeallocator/20299/2?u=gwendal.roue
             let data = Data(repeating: 0xaa, count: 15)
-            
+
             do {
                 let rows = try Row.fetchCursor(db, sql: "SELECT ?", arguments: [data])
                 while let row = try rows.next() {
@@ -127,7 +120,7 @@ class DataMemoryTests: GRDBTestCase {
                     }
                 }
             }
-            
+
             do {
                 let adapter = ScopeAdapter(["nested": SuffixRowAdapter(fromIndex: 0)])
                 let rows = try Row.fetchCursor(db, sql: "SELECT ?", arguments: [data], adapter: adapter)
@@ -142,7 +135,7 @@ class DataMemoryTests: GRDBTestCase {
                     }
                 }
             }
-            
+
             do {
                 let row = try Row.fetchOne(db, sql: "SELECT ?", arguments: [data])!
                 let dbValue = row.first!.1 // TODO: think about exposing a (column:,databaseValue:) tuple

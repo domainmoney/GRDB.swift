@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -25,9 +18,9 @@ import Foundation
 public struct LineDumpFormat: Sendable {
     /// The string to print for NULL values.
     public var nullValue: String
-    
+
     var firstRow = true
-    
+
     /// Creates a `LineDumpFormat`.
     ///
     /// - Parameters:
@@ -51,20 +44,20 @@ extension LineDumpFormat: DumpFormat {
             // Don't log GRDB columns
             let column = String(cString: sqlite3_column_name(sqliteStatement, index))
             if column.starts(with: "grdb_") { continue }
-            
+
             lines.append((
                 column: column,
                 value: formattedValue(db, in: sqliteStatement, at: index)))
         }
-        
+
         if lines.isEmpty { return }
-        
+
         if firstRow {
             firstRow = false
         } else {
             stream.write("\n")
         }
-        
+
         let columnWidth = lines.map(\.column.count).max()!
         for line in lines {
             stream.write(line.column.leftPadding(toLength: columnWidth, withPad: " "))
@@ -72,7 +65,7 @@ extension LineDumpFormat: DumpFormat {
             stream.writeln(line.value)
         }
     }
-    
+
     public mutating func finalize(
         _ db: Database,
         statement: Statement,
@@ -83,7 +76,7 @@ extension LineDumpFormat: DumpFormat {
         }
         firstRow = true
     }
-    
+
     func formattedValue(
         _ db: Database,
         in sqliteStatement: SQLiteStatement,
@@ -93,16 +86,16 @@ extension LineDumpFormat: DumpFormat {
         switch sqlite3_column_type(sqliteStatement, index) {
         case SQLITE_NULL:
             return nullValue
-            
+
         case SQLITE_INTEGER:
             return Int64(sqliteStatement: sqliteStatement, index: index).description
-            
+
         case SQLITE_FLOAT:
             return Double(sqliteStatement: sqliteStatement, index: index).description
-            
+
         case SQLITE_BLOB, SQLITE_TEXT:
             return String(sqliteStatement: sqliteStatement, index: index)
-            
+
         default:
             return ""
         }

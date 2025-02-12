@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 /// A type that can decode itself from the low-level C interface to
 /// SQLite results.
@@ -93,7 +86,7 @@ public protocol StatementColumnConvertible {
         _ sqliteStatement: SQLiteStatement,
         atUncheckedIndex index: CInt)
     -> Self?
-    
+
     /// Creates an instance from a raw SQLite statement pointer, if possible.
     ///
     /// Do not check for `NULL` in your implementation of this method. Null
@@ -149,7 +142,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
             index: index,
             context: context())
     }
-    
+
     @inline(__always)
     @inlinable
     static func fastDecode(
@@ -166,7 +159,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
         // Support for fast decoding from adapted rows
         return try row.fastDecode(Self.self, atUncheckedIndex: index)
     }
-    
+
     @inline(__always)
     @inlinable
     static func fastDecode(
@@ -181,7 +174,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
             try _valueMismatch(fromStatement: sqliteStatement, atUncheckedIndex: index, context: context())
         }
     }
-    
+
     // Support for Decodable
     @inline(__always)
     @inlinable
@@ -220,7 +213,7 @@ where Value: DatabaseValueConvertible & StatementColumnConvertible
     public let _statement: Statement
     public var _isDone = false
     @usableFromInline let columnIndex: CInt
-    
+
     init(statement: Statement, arguments: StatementArguments? = nil, adapter: (any RowAdapter)? = nil) throws {
         self._statement = statement
         if let adapter {
@@ -229,17 +222,17 @@ where Value: DatabaseValueConvertible & StatementColumnConvertible
         } else {
             columnIndex = 0
         }
-        
+
         // Assume cursor is created for immediate iteration: reset and set arguments
         try statement.prepareExecution(withArguments: arguments)
     }
-    
+
     deinit {
         // Statement reset fails when sqlite3_step has previously failed.
         // Just ignore reset error.
         try? _statement.reset()
     }
-    
+
     @inlinable
     public func _element(sqliteStatement: SQLiteStatement) throws -> Value {
         try Value.fastDecode(
@@ -260,9 +253,9 @@ extension FastDatabaseValueCursor: Sendable { }
 ///
 /// See DatabaseValueConvertible for more information.
 extension DatabaseValueConvertible where Self: StatementColumnConvertible {
-    
+
     // MARK: Fetching From Prepared Statement
-    
+
     /// Returns a cursor over values fetched from a prepared statement.
     ///
     /// For example:
@@ -302,7 +295,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
     {
         try FastDatabaseValueCursor(statement: statement, arguments: arguments, adapter: adapter)
     }
-    
+
     /// Returns an array of values fetched from a prepared statement.
     ///
     /// For example:
@@ -333,7 +326,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
     {
         try Array(fetchCursor(statement, arguments: arguments, adapter: adapter))
     }
-    
+
     /// Returns a single value fetched from a prepared statement.
     ///
     /// The value is decoded from the leftmost column if the `adapter` argument
@@ -408,9 +401,9 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible & Hash
 }
 
 extension DatabaseValueConvertible where Self: StatementColumnConvertible {
-    
+
     // MARK: Fetching From SQL
-    
+
     /// Returns a cursor over values fetched from an SQL query.
     ///
     /// For example:
@@ -451,7 +444,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
     {
         try fetchCursor(db, SQLRequest(sql: sql, arguments: arguments, adapter: adapter))
     }
-    
+
     /// Returns an array of values fetched from an SQL query.
     ///
     /// For example:
@@ -483,7 +476,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
     {
         try fetchAll(db, SQLRequest(sql: sql, arguments: arguments, adapter: adapter))
     }
-    
+
     /// Returns a single value fetched from an SQL query.
     ///
     /// The value is decoded from the leftmost column if the `adapter` argument
@@ -555,9 +548,9 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible & Hash
 }
 
 extension DatabaseValueConvertible where Self: StatementColumnConvertible {
-    
+
     // MARK: Fetching From FetchRequest
-    
+
     /// Returns a cursor over values fetched from a fetch request.
     ///
     /// For example:
@@ -602,7 +595,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
         let request = try request.makePreparedRequest(db, forSingleResult: false)
         return try fetchCursor(request.statement, adapter: request.adapter)
     }
-    
+
     /// Returns an array of values fetched from a fetch request.
     ///
     /// For example:
@@ -636,7 +629,7 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible {
         let request = try request.makePreparedRequest(db, forSingleResult: false)
         return try fetchAll(request.statement, adapter: request.adapter)
     }
-    
+
     /// Returns a single value fetched from a fetch request.
     ///
     /// The value is decoded from the leftmost column.
@@ -712,9 +705,9 @@ extension DatabaseValueConvertible where Self: StatementColumnConvertible & Hash
 }
 
 extension FetchRequest where RowDecoder: DatabaseValueConvertible & StatementColumnConvertible {
-    
+
     // MARK: Fetching Values
-    
+
     /// Returns a cursor over fetched values.
     ///
     /// For example:
@@ -754,7 +747,7 @@ extension FetchRequest where RowDecoder: DatabaseValueConvertible & StatementCol
     public func fetchCursor(_ db: Database) throws -> FastDatabaseValueCursor<RowDecoder> {
         try RowDecoder.fetchCursor(db, self)
     }
-    
+
     /// Returns an array of fetched values.
     ///
     /// For example:
@@ -785,7 +778,7 @@ extension FetchRequest where RowDecoder: DatabaseValueConvertible & StatementCol
     public func fetchAll(_ db: Database) throws -> [RowDecoder] {
         try RowDecoder.fetchAll(db, self)
     }
-    
+
     /// Returns a single fetched value.
     ///
     /// The value is decoded from the leftmost column.

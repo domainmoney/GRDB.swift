@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 #if !canImport(Darwin)
 @preconcurrency
@@ -14,16 +7,16 @@ import Dispatch
 import Foundation
 
 public struct Configuration: Sendable {
-    
+
     // MARK: - Misc options
-    
+
     /// A boolean value indicating whether foreign key support is enabled.
     ///
     /// The default is true.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/foreignkeys.html>.
     public var foreignKeysEnabled = true
-    
+
     /// A boolean value indicating whether an SQLite connection is read-only.
     ///
     /// The default is false.
@@ -37,7 +30,7 @@ public struct Configuration: Sendable {
     ///     configuration: config)
     /// ```
     public var readonly = false
-    
+
     /// A label that describes a database connection.
     ///
     /// You can query this label at runtime:
@@ -88,7 +81,7 @@ public struct Configuration: Sendable {
     ///
     /// The default configuration label is nil.
     public var label: String? = nil
-    
+
     /// A boolean value indicating whether SQLite 3.29+ interprets
     /// double-quoted strings as string literals when they does not match any
     /// valid identifier.
@@ -114,7 +107,7 @@ public struct Configuration: Sendable {
     ///     """)
     /// ```
     public var acceptsDoubleQuotedStringLiterals = false
-    
+
     /// A boolean value indicating whether the database connection listens to
     /// the ``Database/suspendNotification`` and ``Database/resumeNotification``
     /// notifications.
@@ -126,7 +119,7 @@ public struct Configuration: Sendable {
     /// ``Database/suspendNotification`` for more informations about
     /// suspended databases.
     public var observesSuspensionNotifications = false
-    
+
     /// A boolean value indicating whether statement arguments are visible in
     /// the description of database errors and trace events.
     ///
@@ -180,7 +173,7 @@ public struct Configuration: Sendable {
     /// }
     /// ```
     public var publicStatementArguments = false
-    
+
     /// The clock that feeds ``Database/transactionDate``.
     ///
     /// - note: [**🔥 EXPERIMENTAL**](https://github.com/groue/GRDB.swift/blob/master/README.md#what-are-experimental-features)
@@ -195,11 +188,11 @@ public struct Configuration: Sendable {
     /// config.transactionClock = .custom { db in /* return some Date */ }
     /// ```
     public var transactionClock: any TransactionClock = .default
-    
+
     // MARK: - Managing SQLite Connections
-    
+
     private var setups: [@Sendable (Database) throws -> Void] = []
-    
+
     /// Defines a function to run whenever an SQLite connection is opened.
     ///
     /// The preparation function is run before the connection is made available
@@ -238,9 +231,9 @@ public struct Configuration: Sendable {
     public mutating func prepareDatabase(_ setup: @escaping @Sendable (Database) throws -> Void) {
         setups.append(setup)
     }
-    
+
     // MARK: - Transactions
-    
+
     /// A boolean value indicating whether it is valid to leave a transaction
     /// opened at the end of a database access method.
     ///
@@ -277,25 +270,25 @@ public struct Configuration: Sendable {
     /// connections: those never allow leaving a transaction opened at the end
     /// of a read access.
     public var allowsUnsafeTransactions = false
-    
+
     // MARK: - Journal Mode
-    
+
     /// Defines how the journal mode is configured when the database
     /// connection is opened.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/pragma.html#pragma_journal_mode>
     public enum JournalModeConfiguration: Sendable {
         /// The default setup has ``DatabaseQueue`` perform no specific
-        /// configuration of the journal mode, and ``DatabasePool`` 
+        /// configuration of the journal mode, and ``DatabasePool``
         /// configure the database for the WAL mode (just like the
         /// ``wal`` case).
         case `default`
-        
+
         /// The journal mode is set to WAL (plus extra configurations that
         /// make life easier with WAL databases).
         case wal
     }
-    
+
     /// Defines how the journal mode is configured when the database
     /// connection is opened.
     ///
@@ -317,20 +310,20 @@ public struct Configuration: Sendable {
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/pragma.html#pragma_journal_mode>
     public var journalMode = JournalModeConfiguration.default
-    
+
     // MARK: - Concurrency
-    
+
     /// Defines the how `SQLITE_BUSY` errors are handled.
     ///
     /// The default is ``Database/BusyMode/immediateError``.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/rescode.html#busy>
     public var busyMode: Database.BusyMode = .immediateError
-    
+
     /// The behavior in case of SQLITE_BUSY error, for read-only connections.
     /// If nil, GRDB picks a default one.
     var readonlyBusyMode: Database.BusyMode? = nil
-    
+
     /// The maximum number of concurrent reader connections.
     ///
     /// This configuration has effect on ``DatabasePool`` and
@@ -355,24 +348,24 @@ public struct Configuration: Sendable {
     /// print(dbSnapshot.configuration.maximumReaderCount) // 1
     /// ```
     public var maximumReaderCount: Int = 5
-    
+
     /// The quality of service of database accesses.
     ///
     /// The quality of service is ignored if you supply a ``targetQueue``.
     ///
     /// The default is `userInitiated`.
     public var qos: DispatchQoS = .userInitiated
-    
+
     /// The effective quality of service of read-only database accesses.
     public var readQoS: DispatchQoS {
         targetQueue?.qos ?? self.qos
     }
-    
+
     /// The effective quality of service of write database accesses.
     public var writeQoS: DispatchQoS {
         writeTargetQueue?.qos ?? targetQueue?.qos ?? self.qos
     }
-    
+
     /// The target dispatch queue for database accesses.
     ///
     /// Database connections which are not read-only will prefer
@@ -388,7 +381,7 @@ public struct Configuration: Sendable {
     ///
     /// The default is nil.
     public var targetQueue: DispatchQueue? = nil
-    
+
     /// The target dispatch queue for write database accesses.
     ///
     /// If this queue is nil, writer connections are controlled
@@ -405,7 +398,7 @@ public struct Configuration: Sendable {
     /// The default is true.
     public var automaticMemoryManagement = true
 #endif
-    
+
     /// A boolean value indicating whether read-only connections should be
     /// kept open.
     ///
@@ -420,40 +413,40 @@ public struct Configuration: Sendable {
     /// Consider setting this flag to true when profiling your application
     /// reveals that a lot of time is spent opening new SQLite connections.
     public var persistentReadOnlyConnections = false
-    
+
     // MARK: - Factory Configuration
-    
+
     /// Creates a factory configuration.
     public init() { }
-    
+
     // MARK: - Not Public
-    
+
     /// The SQLite [threading mode](https://www.sqlite.org/threadsafe.html).
     ///
     /// - Note: Only the multi-thread mode (`SQLITE_OPEN_NOMUTEX`) is currently
     /// supported, since all <doc:DatabaseConnections> access SQLite connections
     /// through a `SerializedDatabase`.
     var threadingMode = Database.ThreadingMode.default
-    
+
     private(set) var SQLiteConnectionDidOpen: (@Sendable () -> Void)?
     private(set) var SQLiteConnectionWillClose: (@Sendable (SQLiteConnection) -> Void)?
     private(set) var SQLiteConnectionDidClose: (@Sendable () -> Void)?
-    
+
     // Workaround https://github.com/apple/swift/issues/72727
     mutating func onConnectionDidOpen(_ callback: @escaping @Sendable () -> Void) {
         SQLiteConnectionDidOpen = callback
     }
-    
+
     // Workaround https://github.com/apple/swift/issues/72727
     mutating func onConnectionWillClose(_ callback: @escaping @Sendable (SQLiteConnection) -> Void) {
         SQLiteConnectionWillClose = callback
     }
-    
+
     // Workaround https://github.com/apple/swift/issues/72727
     mutating func onConnectionDidClose(_ callback: @escaping @Sendable () -> Void) {
         SQLiteConnectionDidClose = callback
     }
-    
+
     var SQLiteOpenFlags: CInt {
         var flags = readonly ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE)
         if sqlite3_libversion_number() >= 3037000 {
@@ -461,17 +454,17 @@ public struct Configuration: Sendable {
         }
         return threadingMode.SQLiteOpenFlags | flags
     }
-    
+
     func setUp(_ db: Database) throws {
         for f in setups {
             try f(db)
         }
     }
-    
+
     func identifier(defaultLabel: String, purpose: String? = nil) -> String {
         (self.label ?? defaultLabel) + (purpose.map { "." + $0 } ?? "")
     }
-    
+
     /// Creates a DispatchQueue which has the quality of service and target
     /// queue of write accesses.
     func makeWriterDispatchQueue(label: String) -> DispatchQueue {
@@ -481,7 +474,7 @@ public struct Configuration: Sendable {
             return DispatchQueue(label: label, qos: qos)
         }
     }
-    
+
     /// Creates a DispatchQueue which has the quality of service and target
     /// queue of read accesses.
     func makeReaderDispatchQueue(label: String) -> DispatchQueue {

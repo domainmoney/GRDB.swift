@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -20,7 +13,7 @@ extension NSUUID: DatabaseValueConvertible {
             return Data(bytes: buffer.baseAddress!, count: 16).databaseValue
         }
     }
-    
+
     /// Returns a `NSUUID` from the specified database value.
     ///
     /// If the database value contains a string, parses this string as an uuid.
@@ -52,7 +45,7 @@ extension UUID: DatabaseValueConvertible {
             Data(bytes: $0.baseAddress!, count: $0.count).databaseValue
         }
     }
-    
+
     /// Returns a `UUID` from the specified database value.
     ///
     /// If the database value contains a string, parses this string as an uuid.

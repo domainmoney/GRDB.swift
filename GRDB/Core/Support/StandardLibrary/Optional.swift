@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 extension Optional: StatementBinding where Wrapped: StatementBinding {
     public func bind(to sqliteStatement: SQLiteStatement, at index: CInt) -> CInt {
@@ -62,11 +55,11 @@ extension Optional: DatabaseValueConvertible where Wrapped: DatabaseValueConvert
             return value.databaseValue
         }
     }
-    
+
     public static func fromMissingColumn() -> Self? {
         .some(.none) // success
     }
-    
+
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Self? {
         if let value = Wrapped.fromDatabaseValue(dbValue) {
             // Valid value
@@ -96,7 +89,7 @@ extension Optional: StatementColumnConvertible where Wrapped: StatementColumnCon
             return .none
         }
     }
-    
+
     public init?(sqliteStatement: SQLiteStatement, index: CInt) {
         guard let value = Wrapped(sqliteStatement: sqliteStatement, index: index) else {
             return nil

@@ -1,12 +1,5 @@
 #if SQLITE_ENABLE_FTS5
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -73,7 +66,7 @@ public struct FTS5 {
         case remove
         #endif
     }
-    
+
     /// Creates an FTS5 module.
     ///
     /// For example:
@@ -87,7 +80,7 @@ public struct FTS5 {
     ///
     /// See ``Database/create(virtualTable:ifNotExists:using:_:)``
     public init() { }
-    
+
     // Support for FTS5Pattern initializers. Don't make public. Users tokenize
     // with `FTS5Tokenizer.tokenize()` methods, which support custom tokenizers,
     // token flags, and query/document tokenzation.
@@ -112,7 +105,7 @@ public struct FTS5 {
             }
         }
     }
-    
+
     /// Returns a pointer to the `fts5_api` structure.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/fts5.html#extending_fts5>
@@ -120,7 +113,7 @@ public struct FTS5 {
         var statement: SQLiteStatement? = nil
         var api: UnsafePointer<fts5_api>? = nil
         let type: StaticString = "fts5_api_ptr"
-        
+
         let code = sqlite3_prepare_v3(db.sqliteConnection, "SELECT fts5(?)", -1, 0, &statement, nil)
         guard code == SQLITE_OK else {
             fatalError("FTS5 is not available")
@@ -140,23 +133,23 @@ public struct FTS5 {
 extension FTS5: VirtualTableModule {
     /// The virtual table module name
     public var moduleName: String { "fts5" }
-    
+
     /// Reserved; part of the VirtualTableModule protocol.
     ///
     /// See Database.create(virtualTable:using:)
     public func makeTableDefinition(configuration: VirtualTableConfiguration) -> FTS5TableDefinition {
         FTS5TableDefinition(configuration: configuration)
     }
-    
+
     /// Don't use this method.
     public func moduleArguments(for definition: FTS5TableDefinition, in db: Database) throws -> [String] {
         var arguments: [String] = []
-        
+
         if definition.columns.isEmpty {
             // Programmer error
             fatalError("FTS5 virtual table requires at least one column.")
         }
-        
+
         for column in definition.columns {
             if column.isIndexed {
                 arguments.append("\(column.name)")
@@ -164,7 +157,7 @@ extension FTS5: VirtualTableModule {
                 arguments.append("\(column.name) UNINDEXED")
             }
         }
-        
+
         if let tokenizer = definition.tokenizer {
             let tokenizerSQL = try tokenizer
                 .components
@@ -176,7 +169,7 @@ extension FTS5: VirtualTableModule {
                 .quotedSQL(db)
             arguments.append("tokenize=\(tokenizerSQL)")
         }
-        
+
         switch definition.contentMode {
         case let .raw(content, contentRowID):
             if let content {
@@ -194,8 +187,8 @@ extension FTS5: VirtualTableModule {
                 arguments.append("content_rowid=\(quotedRowID)")
             }
         }
-        
-        
+
+
         if let prefixes = definition.prefixes {
             let prefix = try prefixes
                 .sorted()
@@ -205,18 +198,18 @@ extension FTS5: VirtualTableModule {
                 .quotedSQL(db)
             arguments.append("prefix=\(prefix)")
         }
-        
+
         if let columnSize = definition.columnSize {
             arguments.append("columnSize=\(columnSize)")
         }
-        
+
         if let detail = definition.detail {
             arguments.append("detail=\(detail)")
         }
-        
+
         return arguments
     }
-    
+
     /// Reserved; part of the VirtualTableModule protocol.
     ///
     /// See Database.create(virtualTable:using:)
@@ -226,28 +219,28 @@ extension FTS5: VirtualTableModule {
             break
         case .synchronized(let contentTable):
             // https://sqlite.org/fts5.html#external_content_tables
-            
+
             let rowIDColumn = try db.primaryKey(contentTable).rowIDColumn ?? Column.rowID.name
             let ftsTable = tableName.quotedDatabaseIdentifier
             let content = contentTable.quotedDatabaseIdentifier
             let indexedColumns = definition.columns.map(\.name)
-            
+
             let ftsColumns = (["rowid"] + indexedColumns)
                 .map(\.quotedDatabaseIdentifier)
                 .joined(separator: ", ")
-            
+
             let newContentColumns = ([rowIDColumn] + indexedColumns)
                 .map { "new.\($0.quotedDatabaseIdentifier)" }
                 .joined(separator: ", ")
-            
+
             let oldContentColumns = ([rowIDColumn] + indexedColumns)
                 .map { "old.\($0.quotedDatabaseIdentifier)" }
                 .joined(separator: ", ")
-            
+
             let ifNotExists = definition.configuration.ifNotExists
                 ? "IF NOT EXISTS "
                 : ""
-            
+
             // swiftlint:disable line_length
             try db.execute(sql: """
                 CREATE TRIGGER \(ifNotExists)\("__\(tableName)_ai".quotedDatabaseIdentifier) AFTER INSERT ON \(content) BEGIN
@@ -262,9 +255,9 @@ extension FTS5: VirtualTableModule {
                 END;
                 """)
             // swiftlint:enable line_length
-            
+
             // https://sqlite.org/fts5.html#the_rebuild_command
-            
+
             try db.execute(sql: "INSERT INTO \(ftsTable)(\(ftsTable)) VALUES('rebuild')")
         }
     }
@@ -305,11 +298,11 @@ public final class FTS5TableDefinition {
         case raw(content: String?, contentRowID: String?)
         case synchronized(contentTable: String)
     }
-    
+
     fileprivate let configuration: VirtualTableConfiguration
     fileprivate var columns: [FTS5ColumnDefinition] = []
     fileprivate var contentMode: ContentMode = .raw(content: nil, contentRowID: nil)
-    
+
     /// The virtual table tokenizer.
     ///
     /// For example:
@@ -323,7 +316,7 @@ public final class FTS5TableDefinition {
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/fts5.html#fts5_table_creation_and_initialization>
     public var tokenizer: FTS5TokenizerDescriptor?
-    
+
     /// The FTS5 `content` option.
     ///
     /// When you want the full-text table to be synchronized with the
@@ -352,7 +345,7 @@ public final class FTS5TableDefinition {
             }
         }
     }
-    
+
     /// The FTS5 `content_rowid` option
     ///
     /// When you want the full-text table to be synchronized with the
@@ -381,26 +374,26 @@ public final class FTS5TableDefinition {
             }
         }
     }
-    
+
     /// The FTS5 `prefix` option.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/fts5.html#prefix_indexes>
     public var prefixes: Set<Int>?
-    
+
     /// The FTS5 `columnsize` option.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/fts5.html#the_columnsize_option>
     public var columnSize: Int?
-    
+
     /// The FTS5 `detail` option.
     ///
     /// Related SQLite documentation: <https://www.sqlite.org/fts5.html#the_detail_option>
     public var detail: String?
-    
+
     init(configuration: VirtualTableConfiguration) {
         self.configuration = configuration
     }
-    
+
     /// Appends a table column.
     ///
     /// For example:
@@ -421,7 +414,7 @@ public final class FTS5TableDefinition {
         columns.append(column)
         return column
     }
-    
+
     /// Synchronizes the full-text table with the content of an external
     /// table.
     ///
@@ -481,12 +474,12 @@ extension FTS5TableDefinition: Sendable { }
 public final class FTS5ColumnDefinition {
     fileprivate let name: String
     fileprivate var isIndexed: Bool
-    
+
     init(name: String) {
         self.name = name
         self.isIndexed = true
     }
-    
+
     /// Excludes the column from the full-text index.
     ///
     /// For example:

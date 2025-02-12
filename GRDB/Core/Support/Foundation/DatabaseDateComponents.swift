@@ -1,47 +1,40 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
 /// A database value that holds date components.
 public struct DatabaseDateComponents: Sendable {
-    
+
     /// The SQLite formats for date components.
     public enum Format: String, Sendable {
-        
+
         /// The format "yyyy-MM-dd".
         case YMD = "yyyy-MM-dd"
-        
+
         /// The format "yyyy-MM-dd HH:mm".
         ///
         /// This format is lexically comparable with SQLite's CURRENT_TIMESTAMP.
         case YMD_HM = "yyyy-MM-dd HH:mm"
-        
+
         /// The format "yyyy-MM-dd HH:mm:ss".
         ///
         /// This format is lexically comparable with SQLite's CURRENT_TIMESTAMP.
         case YMD_HMS = "yyyy-MM-dd HH:mm:ss"
-        
+
         /// The format "yyyy-MM-dd HH:mm:ss.SSS".
         ///
         /// This format is lexically comparable with SQLite's CURRENT_TIMESTAMP.
         case YMD_HMSS = "yyyy-MM-dd HH:mm:ss.SSS"
-        
+
         /// The format "HH:mm".
         case HM = "HH:mm"
-        
+
         /// The format "HH:mm:ss".
         case HMS = "HH:mm:ss"
-        
+
         /// The format "HH:mm:ss.SSS".
         case HMSS = "HH:mm:ss.SSS"
-        
+
         var hasYMDComponents: Bool {
             switch self {
             case .YMD, .YMD_HM, .YMD_HMS, .YMD_HMSS:
@@ -51,13 +44,13 @@ public struct DatabaseDateComponents: Sendable {
             }
         }
     }
-    
+
     /// The date components
     public let dateComponents: DateComponents
-    
+
     /// The database format
     public let format: Format
-    
+
     /// Creates a DatabaseDateComponents from a DateComponents and a format.
     ///
     /// - parameters:
@@ -108,7 +101,7 @@ extension DatabaseDateComponents: DatabaseValueConvertible {
         default:
             dateString = nil
         }
-        
+
         let timeString: String?
         switch format {
         case .YMD_HM, .HM:
@@ -131,10 +124,10 @@ extension DatabaseDateComponents: DatabaseValueConvertible {
         default:
             timeString = nil
         }
-        
+
         return [dateString, timeString].compactMap { $0 }.joined(separator: " ").databaseValue
     }
-    
+
     /// Creates a `DatabaseDateComponents` from the specified database value.
     ///
     /// The supported formats are:
@@ -155,7 +148,7 @@ extension DatabaseDateComponents: DatabaseValueConvertible {
         guard let string = String.fromDatabaseValue(dbValue) else {
             return nil
         }
-        
+
         return SQLiteDateParser().components(from: string)
     }
 }

@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
@@ -64,10 +57,10 @@ import Foundation
 public struct DatabaseValue: Hashable {
     /// The SQLite storage.
     public let storage: Storage
-    
+
     /// The NULL DatabaseValue.
     public static let null = DatabaseValue(storage: .null)
-    
+
     /// A value stored in a database table, with its exact SQLite storage
     /// (NULL, INTEGER, REAL, TEXT, BLOB).
     ///
@@ -76,19 +69,19 @@ public struct DatabaseValue: Hashable {
     public enum Storage {
         /// The NULL storage class.
         case null
-        
+
         /// The INTEGER storage class, wrapping an Int64.
         case int64(Int64)
-        
+
         /// The REAL storage class, wrapping a Double.
         case double(Double)
-        
+
         /// The TEXT storage class, wrapping a String.
         case string(String)
-        
+
         /// The BLOB storage class, wrapping Data.
         case blob(Data)
-        
+
         /// Returns `Int64`, `Double`, `String`, `Data` or nil.
         public var value: (any DatabaseValueConvertible)? {
             switch self {
@@ -105,7 +98,7 @@ public struct DatabaseValue: Hashable {
             }
         }
     }
-    
+
     /// Creates a `DatabaseValue` from any value.
     ///
     /// The result is nil unless `value` adopts ``DatabaseValueConvertible``.
@@ -115,9 +108,9 @@ public struct DatabaseValue: Hashable {
         }
         self = convertible.databaseValue
     }
-    
+
     // MARK: - Extracting Value
-    
+
     /// A boolean value indicating is the database value is `NULL`.
     public var isNull: Bool {
         switch storage {
@@ -127,13 +120,13 @@ public struct DatabaseValue: Hashable {
             return false
         }
     }
-    
+
     // MARK: - Not Public
-    
+
     init(storage: Storage) {
         self.storage = storage
     }
-    
+
     // SQLite function argument
     init(sqliteValue: SQLiteValue) {
         switch sqlite3_value_type(sqliteValue) {
@@ -157,7 +150,7 @@ public struct DatabaseValue: Hashable {
             fatalError("Unexpected SQLite value type: \(type)")
         }
     }
-    
+
     /// Creates a `DatabaseValue` initialized from a raw SQLite statement pointer.
     public init(sqliteStatement: SQLiteStatement, index: CInt) {
         switch sqlite3_column_type(sqliteStatement, index) {
@@ -198,7 +191,7 @@ extension DatabaseValue: StatementBinding {
             return data.bind(to: sqliteStatement, at: index)
         }
     }
-    
+
     /// Calls the given closure after binding a statement argument.
     ///
     /// The binding is valid only during the execution of this method.
@@ -322,7 +315,7 @@ extension DatabaseValue: DatabaseValueConvertible {
     public var databaseValue: DatabaseValue {
         self
     }
-    
+
     /// Returns the database value
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> DatabaseValue? {
         dbValue

@@ -1,18 +1,11 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 import Foundation
 
 /// `DatabaseCollation` is a custom string comparison function used by SQLite.
 ///
 /// See also ``Database/CollationName``.
-/// 
+///
 /// Related SQLite documentation: <https://www.sqlite.org/datatype3.html#collating_sequences>
 ///
 /// ## Topics
@@ -35,7 +28,7 @@ public final class DatabaseCollation: Identifiable, Sendable {
     /// SQLite identifies collations by their name (case insensitive).
     public struct ID: Hashable {
         var name: String
-        
+
         // Collation equality is based on the sqlite3_strnicmp SQLite function.
         // (see https://www.sqlite.org/c3ref/create_collation.html). Computing
         // a hash value that honors the Swift Hashable contract (value equality
@@ -45,21 +38,21 @@ public final class DatabaseCollation: Identifiable, Sendable {
         public func hash(into hasher: inout Hasher) {
             hasher.combine(0)
         }
-        
+
         /// Two collations are equal if they share the same name (case insensitive)
         public static func == (lhs: Self, rhs: Self) -> Bool {
             // See <https://www.sqlite.org/c3ref/create_collation.html>
             return sqlite3_stricmp(lhs.name, rhs.name) == 0
         }
     }
-    
+
     /// The identifier of the collation.
     public var id: ID { ID(name: name) }
-    
+
     /// The name of the collation.
     public let name: String
     let function: @Sendable (CInt, UnsafeRawPointer?, CInt, UnsafeRawPointer?) -> ComparisonResult
-    
+
     /// Creates a collation.
     ///
     /// For example:

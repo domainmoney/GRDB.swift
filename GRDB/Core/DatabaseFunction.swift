@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 /// A custom SQL function or aggregate.
 ///
@@ -37,16 +30,16 @@ public final class DatabaseFunction: Identifiable, Sendable {
         let name: String
         let nArg: CInt // -1 for variadic functions
     }
-    
+
     /// The name of the SQL function.
     public var name: String { id.name }
-    
+
     /// The identifier of the SQL function.
     public let id: ID
     let isPure: Bool
     private let kind: Kind
     private var eTextRep: CInt { (SQLITE_UTF8 | (isPure ? SQLITE_DETERMINISTIC : 0)) }
-    
+
     /// Creates an SQL function.
     ///
     /// For example:
@@ -97,7 +90,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
             return try function(arguments)
         }
     }
-    
+
     /// Creates an SQL aggregate function.
     ///
     /// For example:
@@ -156,7 +149,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
         self.isPure = pure
         self.kind = .aggregate { Aggregate() }
     }
-    
+
     // TODO: GRDB7 -> expose ORDER BY and FILTER when we have distinct types for simple functions and aggregates.
     /// Returns an SQL expression that applies the function.
     ///
@@ -201,14 +194,14 @@ public final class DatabaseFunction: Identifiable, Sendable {
                 isJSONValue: false)
         }
     }
-    
+
     /// Calls sqlite3_create_function_v2
     /// See <https://sqlite.org/c3ref/create_function.html>
     func install(in db: Database) {
         // Retain the function definition
         let definition = kind.definition
         let definitionP = Unmanaged.passRetained(definition).toOpaque()
-        
+
         let code = sqlite3_create_function_v2(
             db.sqliteConnection,
             id.name,
@@ -222,13 +215,13 @@ public final class DatabaseFunction: Identifiable, Sendable {
                 // Release the function definition
                 Unmanaged<AnyObject>.fromOpaque(definitionP!).release()
             })
-        
+
         guard code == SQLITE_OK else {
             // Assume a GRDB bug: there is no point throwing any error.
             fatalError(DatabaseError(resultCode: code, message: db.lastErrorMessage))
         }
     }
-    
+
     /// Calls sqlite3_create_function_v2
     /// See <https://sqlite.org/c3ref/create_function.html>
     func uninstall(in db: Database) {
@@ -238,13 +231,13 @@ public final class DatabaseFunction: Identifiable, Sendable {
             id.nArg,
             eTextRep,
             nil, nil, nil, nil, nil)
-        
+
         guard code == SQLITE_OK else {
             // Assume a GRDB bug: there is no point throwing any error.
             fatalError(DatabaseError(resultCode: code, message: db.lastErrorMessage))
         }
     }
-    
+
     /// The way to compute the result of a function.
     /// Feeds the `pApp` parameter of sqlite3_create_function_v2
     /// <http://sqlite.org/capi3ref.html#sqlite3_create_function>
@@ -256,7 +249,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
             self.compute = compute
         }
     }
-    
+
     /// The way to start an aggregate.
     /// Feeds the `pApp` parameter of sqlite3_create_function_v2
     /// <http://sqlite.org/capi3ref.html#sqlite3_create_function>
@@ -266,7 +259,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
             self.makeAggregate = makeAggregate
         }
     }
-    
+
     /// The current state of an aggregate, storable in SQLite
     private class AggregateContext {
         var aggregate: any DatabaseAggregate
@@ -275,16 +268,16 @@ public final class DatabaseFunction: Identifiable, Sendable {
             self.aggregate = aggregate
         }
     }
-    
+
     /// A function kind: an "SQL function" or an "aggregate".
     /// See <http://sqlite.org/capi3ref.html#sqlite3_create_function>
     private enum Kind: Sendable {
         /// A regular function: SELECT f(1)
         case function(@Sendable (CInt, UnsafeMutablePointer<OpaquePointer?>?) throws -> (any DatabaseValueConvertible)?)
-        
+
         /// An aggregate: SELECT f(foo) FROM bar GROUP BY baz
         case aggregate(@Sendable () -> any DatabaseAggregate)
-        
+
         /// Feeds the `pApp` parameter of sqlite3_create_function_v2
         /// <http://sqlite.org/capi3ref.html#sqlite3_create_function>
         var definition: AnyObject {
@@ -295,7 +288,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
                 return AggregateDefinition(makeAggregate: makeAggregate)
             }
         }
-        
+
         /// Feeds the `xFunc` parameter of sqlite3_create_function_v2
         /// <http://sqlite.org/capi3ref.html#sqlite3_create_function>
         var xFunc: (@convention(c) (OpaquePointer?, CInt, UnsafeMutablePointer<OpaquePointer?>?) -> Void)? {
@@ -313,7 +306,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
                 }
             }
         }
-        
+
         /// Feeds the `xStep` parameter of sqlite3_create_function_v2
         /// <http://sqlite.org/capi3ref.html#sqlite3_create_function>
         var xStep: (@convention(c) (OpaquePointer?, CInt, UnsafeMutablePointer<OpaquePointer?>?) -> Void)? {
@@ -333,7 +326,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
                 }
             }
         }
-        
+
         /// Feeds the `xFinal` parameter of sqlite3_create_function_v2
         /// <http://sqlite.org/capi3ref.html#sqlite3_create_function>
         var xFinal: (@convention(c) (OpaquePointer?) -> Void)? {
@@ -342,11 +335,11 @@ public final class DatabaseFunction: Identifiable, Sendable {
                 let aggregateContextU = DatabaseFunction.unmanagedAggregateContext(sqliteContext)
                 let aggregateContext = aggregateContextU.takeUnretainedValue()
                 aggregateContextU.release()
-                
+
                 guard !aggregateContext.hasErrored else {
                     return
                 }
-                
+
                 do {
                     try DatabaseFunction.report(
                         result: aggregateContext.aggregate.finalize(),
@@ -357,7 +350,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
             }
         }
     }
-    
+
     /// Helper function that extracts the current state of an aggregate from an
     /// sqlite function execution context.
     ///
@@ -375,7 +368,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
         let aggregateContextBufferP = UnsafeMutableRawBufferPointer(
             start: sqlite3_aggregate_context(sqliteContext, CInt(stride))!,
             count: stride)
-        
+
         if aggregateContextBufferP.contains(where: { $0 != 0 }) {
             // Buffer contains non-zero byte: load aggregate context
             let aggregateContextP = aggregateContextBufferP
@@ -388,7 +381,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
                 .takeUnretainedValue()
                 .makeAggregate()
             let aggregateContext = AggregateContext(aggregate: aggregate)
-            
+
             // retain and store in SQLite's buffer
             let aggregateContextU = Unmanaged.passRetained(aggregateContext)
             let aggregateContextP = aggregateContextU.toOpaque()
@@ -398,7 +391,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
             return aggregateContextU
         }
     }
-    
+
     private static func report(result: (any DatabaseValueConvertible)?, in sqliteContext: OpaquePointer?) {
         switch result?.databaseValue.storage ?? .null {
         case .null:
@@ -415,7 +408,7 @@ public final class DatabaseFunction: Identifiable, Sendable {
             }
         }
     }
-    
+
     private static func report(error: Error, in sqliteContext: OpaquePointer?) {
         if let error = error as? DatabaseError {
             if let message = error.message {
@@ -462,7 +455,7 @@ public protocol DatabaseAggregate {
     ///
     /// A new instance is created for each aggregation.
     init()
-    
+
     /// Updates the aggregated value for one step of the aggregation.
     ///
     /// This method is called once for each step of the aggregation.
@@ -478,7 +471,7 @@ public protocol DatabaseAggregate {
     /// SELECT maxFullNameLength(firstName, lastName) FROM player
     /// ```
     mutating func step(_ dbValues: [DatabaseValue]) throws
-    
+
     /// Returns the aggregated value.
     func finalize() throws -> (any DatabaseValueConvertible)?
 }

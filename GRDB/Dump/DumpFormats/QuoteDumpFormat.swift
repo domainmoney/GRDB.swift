@@ -1,11 +1,4 @@
-// Import C SQLite functions
-#if SWIFT_PACKAGE
-import GRDBSQLite
-#elseif GRDBCIPHER
 import SQLCipher
-#elseif !GRDBCUSTOMSQLITE && !GRDBCIPHER
-import SQLite3
-#endif
 
 /// A format that prints one line per database row, formatting values
 /// as SQL literals.
@@ -22,12 +15,12 @@ public struct QuoteDumpFormat: Sendable {
     /// A boolean value indicating if column labels are printed as the first
     /// line of output.
     public var header: Bool
-    
+
     /// The separator between values.
     public var separator: String
-    
+
     var firstRow = true
-    
+
     /// Creates a `QuoteDumpFormat`.
     ///
     /// - Parameters:
@@ -57,27 +50,27 @@ extension QuoteDumpFormat: DumpFormat {
                     .joined(separator: separator))
             }
         }
-        
+
         let sqliteStatement = statement.sqliteStatement
         var first = true
         for index in 0..<sqlite3_column_count(sqliteStatement) {
             // Don't log GRDB columns
             let column = String(cString: sqlite3_column_name(sqliteStatement, index))
             if column.starts(with: "grdb_") { continue }
-            
+
             if first {
                 first = false
             } else {
                 stream.write(separator)
             }
-            
+
             let dbValue = DatabaseValue(sqliteStatement: sqliteStatement, index: index)
             try! stream.write(dbValue.sqlExpression.quotedSQL(db))
         }
-        
+
         stream.write("\n")
     }
-    
+
     public mutating func finalize(
         _ db: Database,
         statement: Statement,
