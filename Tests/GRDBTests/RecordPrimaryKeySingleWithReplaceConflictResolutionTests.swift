@@ -11,7 +11,7 @@ class Email : Record, Hashable {
         super.init()
     }
     
-    static func setup(inDatabase db: Database) throws {
+    static func setup(_ db: Database) throws {
         try db.execute(sql: """
             CREATE TABLE emails (
                 email TEXT NOT NULL PRIMARY KEY ON CONFLICT REPLACE,
@@ -50,7 +50,9 @@ class RecordPrimaryKeySingleWithReplaceConflictResolutionTests: GRDBTestCase {
     
     override func setup(_ dbWriter: some DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("createEmail", migrate: Email.setup)
+        migrator.registerMigration("createEmail") {
+            try Email.setup($0)
+        }
         try migrator.migrate(dbWriter)
     }
     
@@ -123,9 +125,9 @@ class RecordPrimaryKeySingleWithReplaceConflictResolutionTests: GRDBTestCase {
             record.email = "me@domain.com"
             do {
                 try record.update(db)
-                XCTFail("Expected PersistenceError.recordNotFound")
-            } catch let PersistenceError.recordNotFound(databaseTableName: databaseTableName, key: key) {
-                // Expected PersistenceError.recordNotFound
+                XCTFail("Expected RecordError.recordNotFound")
+            } catch let RecordError.recordNotFound(databaseTableName: databaseTableName, key: key) {
+                // Expected RecordError.recordNotFound
                 XCTAssertEqual(databaseTableName, "emails")
                 XCTAssertEqual(key, ["email": record.email.databaseValue])
             }
@@ -154,9 +156,9 @@ class RecordPrimaryKeySingleWithReplaceConflictResolutionTests: GRDBTestCase {
             try record.delete(db)
             do {
                 try record.update(db)
-                XCTFail("Expected PersistenceError.recordNotFound")
-            } catch let PersistenceError.recordNotFound(databaseTableName: databaseTableName, key: key) {
-                // Expected PersistenceError.recordNotFound
+                XCTFail("Expected RecordError.recordNotFound")
+            } catch let RecordError.recordNotFound(databaseTableName: databaseTableName, key: key) {
+                // Expected RecordError.recordNotFound
                 XCTAssertEqual(databaseTableName, "emails")
                 XCTAssertEqual(key, ["email": record.email.databaseValue])
             }
@@ -364,6 +366,19 @@ class RecordPrimaryKeySingleWithReplaceConflictResolutionTests: GRDBTestCase {
         }
     }
     
+    func testFindWithKey() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let record = Email()
+            record.email = "me@domain.com"
+            try record.insert(db)
+            
+            let fetchedRecord = try Email.find(db, key: ["email": record.email])
+            XCTAssertTrue(fetchedRecord.email == record.email)
+            XCTAssertEqual(lastSQLQuery, "SELECT * FROM \"emails\" WHERE \"email\" = '\(record.email!)'")
+        }
+    }
+
     
     // MARK: - Fetch With Key Request
     
@@ -481,6 +496,17 @@ class RecordPrimaryKeySingleWithReplaceConflictResolutionTests: GRDBTestCase {
     }
     
     
+    // MARK: - Stable order
+    
+    func testStableOrder() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let request = Email.all().withStableOrder()
+            try assertEqualSQL(db, request, "SELECT * FROM \"emails\" ORDER BY \"email\"")
+        }
+    }
+    
+    
     // MARK: - Fetch With Primary Key
     
     func testFetchCursorWithPrimaryKeys() throws {
@@ -580,6 +606,27 @@ class RecordPrimaryKeySingleWithReplaceConflictResolutionTests: GRDBTestCase {
         }
     }
     
+    func testFindWithPrimaryKey() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let record = Email()
+            record.email = "me@domain.com"
+            try record.insert(db)
+            
+            do {
+                let id: String? = nil
+                _ = try Email.find(db, key: id)
+                XCTFail("Expected RecordError")
+            } catch RecordError.recordNotFound(databaseTableName: "emails", key: ["email": .null]) { }
+
+            do {
+                let fetchedRecord = try Email.find(db, key: record.email)
+                XCTAssertTrue(fetchedRecord.email == record.email)
+                XCTAssertEqual(lastSQLQuery, "SELECT * FROM \"emails\" WHERE \"email\" = '\(record.email!)'")
+            }
+        }
+    }
+
     
     // MARK: - Fetch With Primary Key Request
     

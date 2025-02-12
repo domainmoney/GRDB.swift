@@ -15,7 +15,7 @@ private class Person : Record {
         super.init()
     }
     
-    static func setup(inDatabase db: Database) throws {
+    static func setup(_ db: Database) throws {
         try db.execute(sql: """
             CREATE TABLE persons (
                 id INTEGER PRIMARY KEY,
@@ -131,7 +131,9 @@ class RecordEditedTests: GRDBTestCase {
     
     override func setup(_ dbWriter: some DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("createPerson", migrate: Person.setup)
+        migrator.registerMigration("createPerson") {
+            try Person.setup($0)
+        }
         try migrator.migrate(dbWriter)
     }
     
@@ -675,8 +677,8 @@ class RecordEditedTests: GRDBTestCase {
             do {
                 XCTAssertTrue(person.hasDatabaseChanges)
                 try person.updateChanges(db)
-                XCTFail("Expected PersistenceError")
-            } catch PersistenceError.recordNotFound(databaseTableName: "persons", key: ["id": .null]) { }
+                XCTFail("Expected RecordError")
+            } catch RecordError.recordNotFound(databaseTableName: "persons", key: ["id": .null]) { }
             
             try person.insert(db)
 

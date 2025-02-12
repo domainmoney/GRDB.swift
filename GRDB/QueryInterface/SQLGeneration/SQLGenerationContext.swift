@@ -1,5 +1,3 @@
-/// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
-///
 /// SQLGenerationContext supports SQL generation:
 ///
 /// - It provides a database connection during SQL generation, for any purpose
@@ -155,15 +153,50 @@ final class SQLGenerationContext {
         return nil
     }
     
-    func columnCount(in tableName: String) throws -> Int {
+    /// Return the number of columns in the table or CTE identified
+    /// by `tableName`.
+    ///
+    /// - parameter tableName: The table name.
+    /// - parameter excludedColumns: The eventual set of excluded columns.
+    func columnCount(
+        in tableName: String,
+        excluding excludedColumns: Set<CaseInsensitiveIdentifier>
+    ) throws -> Int {
         if let cte = ownCTEs[tableName.lowercased()] {
-            return try cte.columnCount(db)
+            if excludedColumns.isEmpty {
+                return try cte.columnCount(db)
+            } else {
+                fatalError("Not implemented: counting CTE columns with excluded columns")
+            }
         }
         switch parent {
         case let .context(context):
-            return try context.columnCount(in: tableName)
+            return try context.columnCount(in: tableName, excluding: excludedColumns)
         case let .none(db: db, argumentsSink: _):
-            return try db.columns(in: tableName).count
+            if excludedColumns.isEmpty {
+                return try db.columns(in: tableName).count
+            } else {
+                return try db
+                    .columns(in: tableName)
+                    .filter { !excludedColumns.contains(CaseInsensitiveIdentifier(rawValue: $0.name)) }
+                    .count
+            }
+        }
+    }
+    
+    /// Return the names of the columns in the table or CTE identified
+    /// by `tableName`.
+    ///
+    /// - parameter tableName: The table name.
+    func columnNames(in tableName: String) throws -> [String] {
+        if ownCTEs[tableName.lowercased()] != nil {
+            fatalError("Not implemented: extracing CTE column names")
+        }
+        switch parent {
+        case let .context(context):
+            return try context.columnNames(in: tableName)
+        case let .none(db: db, argumentsSink: _):
+            return try db.columns(in: tableName).map(\.name)
         }
     }
 }
@@ -174,15 +207,24 @@ class StatementArgumentsSink {
     private(set) var arguments: StatementArguments
     private let rawSQL: Bool
     
-    /// A sink which does not accept any arguments.
-    static let forRawSQL = StatementArgumentsSink(rawSQL: true)
+    // This non-Sendable instance can be used from multiple threads
+    // concurrently, because it never modifies its `arguments`
+    // mutable state.
+    /// A sink which turns all argument values into SQL literals.
+    ///
+    /// The `"WHERE name = \("O'Brien")"` SQL literal is turned into the
+    /// `WHERE name = 'O''Brien'` SQL.
+    nonisolated(unsafe) static let literalValues = StatementArgumentsSink(rawSQL: true)
     
     private init(rawSQL: Bool) {
         self.arguments = []
         self.rawSQL = rawSQL
     }
     
-    /// A sink which accepts arguments
+    /// A sink which turns all argument values into `?` SQL parameters.
+    ///
+    /// The `"WHERE name = \("O'Brien")"` SQL literal is turned into the
+    /// `WHERE name = ?` SQL.
     convenience init() {
         self.init(rawSQL: false)
     }
@@ -204,10 +246,14 @@ class StatementArgumentsSink {
 
 // MARK: - TableAlias
 
-/// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
-///
 /// A TableAlias identifies a table in a request.
-public class TableAlias: Hashable {
+///
+/// See ``TableRequest/aliased(_:)`` for more information and examples.
+///
+/// - note: [**🔥 EXPERIMENTAL**](https://github.com/groue/GRDB.swift/blob/master/README.md#what-are-experimental-features)
+public class TableAlias: @unchecked Sendable {
+    // This Sendable conformance is transient. TableAlias IS NOT really Sendable.
+    // TODO: GRDB7 Make TableAlias really Sendable
     private enum Impl {
         /// A TableAlias is undefined when it is created by the GRDB user:
         ///
@@ -299,32 +345,16 @@ public class TableAlias: Hashable {
         }
     }
     
-    /// Creates a TableAlias, suitable for qualifying requests or associations.
-    ///
-    /// For example:
-    ///
-    ///     // The request for all books published after their author has died
-    ///     //
-    ///     // SELECT book.*
-    ///     // FROM book
-    ///     // JOIN author ON author.id = book.authorId
-    ///     // WHERE book.publishDate >= author.deathDate
-    ///     let authorAlias = TableAlias()
-    ///     let request = Book
-    ///         .joining(required: Book.author.aliased(authorAlias))
-    ///         .filter(Column("publishDate") >= authorAlias[Column("deathDate")])
+    /// Creates a TableAlias.
     ///
     /// When the alias is given a name, this name is guaranteed to be used as
     /// the table alias in the SQL query:
     ///
-    ///     // SELECT book.*
-    ///     // FROM book
-    ///     // JOIN author a ON a.id = book.authorId
-    ///     // WHERE book.publishDate >= a.deathDate
-    ///     let authorAlias = TableAlias(name: "a")
-    ///     let request = Book
-    ///         .joining(required: Book.author.aliased(authorAlias))
-    ///         .filter(Column("publishDate") >= authorAlias[Column("deathDate")])
+    /// ```swift
+    /// // SELECT p.* FROM player p
+    /// let alias = TableAlias(name: "p")
+    /// let request = Player.all().aliased(alias)
+    /// ```
     public init(name: String? = nil) {
         self.impl = .undefined(userName: name)
     }
@@ -340,7 +370,7 @@ public class TableAlias: Hashable {
         
         switch impl {
         case let .undefined(userName):
-            if let userName = userName {
+            if let userName {
                 // rename
                 assert(base.userName == nil || base.userName == userName)
                 base.setUserName(userName)
@@ -348,7 +378,7 @@ public class TableAlias: Hashable {
             self.impl = .proxy(base)
         case let .table(tableName: tableName, userName: userName):
             assert(tableName == base.tableName)
-            if let userName = userName {
+            if let userName {
                 // rename
                 assert(base.userName == nil || base.userName == userName)
                 base.setUserName(userName)
@@ -374,7 +404,7 @@ public class TableAlias: Hashable {
                 // can't merge
                 return nil
             }
-            if let userName = userName, let otherUserName = otherUserName, userName != otherUserName {
+            if let userName, let otherUserName, userName != otherUserName {
                 // can't merge
                 return nil
             }
@@ -417,57 +447,109 @@ public class TableAlias: Hashable {
         }
     }
     
-    /// Returns a qualified value that is able to resolve ambiguities in
-    /// joined queries.
+    /// Returns a result column that refers to the aliased table.
     public subscript(_ selectable: some SQLSelectable) -> SQLSelection {
+        // TODO: test
         selectable.sqlSelection.qualified(with: self)
     }
     
-    /// Returns a qualified expression that is able to resolve ambiguities in
-    /// joined queries.
+    /// Returns an SQL expression that refers to the aliased table.
+    ///
+    /// For example, let's sort books by author name first, and then by title:
+    ///
+    /// ```swift
+    /// // SELECT book.*
+    /// // FROM book
+    /// // JOIN author ON author.id = book.authorId
+    /// // ORDER BY author.name, book.title
+    /// let authorAlias = TableAlias()
+    /// let request = Book
+    ///     .joining(required: Book.author.aliased(authorAlias))
+    ///     .order(authorAlias[Column("name")], Column("title"))
+    /// ```
     public subscript(_ expression: some SQLSpecificExpressible & SQLSelectable & SQLOrderingTerm) -> SQLExpression {
         expression.sqlExpression.qualified(with: self)
     }
     
-    /// Returns a qualified ordering that is able to resolve ambiguities in
-    /// joined queries.
+    public subscript(_ expression: some SQLJSONExpressible &
+                     SQLSpecificExpressible &
+                     SQLSelectable &
+                     SQLOrderingTerm)
+    -> AnySQLJSONExpressible
+    {
+        AnySQLJSONExpressible(sqlExpression: expression.sqlExpression.qualified(with: self))
+    }
+    
+    /// Returns an SQL ordering term that refers to the aliased table.
+    ///
+    /// For example, let's sort books by author name first, and then by title:
+    ///
+    /// ```swift
+    /// // SELECT book.*
+    /// // FROM book
+    /// // JOIN author ON author.id = book.authorId
+    /// // ORDER BY author.name ASC, book.title ASC
+    /// let authorAlias = TableAlias()
+    /// let request = Book
+    ///     .joining(required: Book.author.aliased(authorAlias))
+    ///     .order(authorAlias[Column("name").asc], Column("title").asc)
+    /// ```
     public subscript(_ ordering: some SQLOrderingTerm) -> SQLOrdering {
         ordering.sqlOrdering.qualified(with: self)
     }
     
-    /// Returns a qualified column that is able to resolve ambiguities in
-    /// joined queries.
+    /// Returns an SQL column that refers to the aliased table.
+    ///
+    /// For example, let's sort books by author name first, and then by title:
+    ///
+    /// ```swift
+    /// // SELECT book.*
+    /// // FROM book
+    /// // JOIN author ON author.id = book.authorId
+    /// // ORDER BY author.name, book.title
+    /// let authorAlias = TableAlias()
+    /// let request = Book
+    ///     .joining(required: Book.author.aliased(authorAlias))
+    ///     .order(authorAlias["name"], Column("title"))
+    /// ```
     public subscript(_ column: String) -> SQLExpression {
         .qualifiedColumn(column, self)
     }
     
-    /// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
+    /// A boolean SQL expression indicating whether this alias refers to some
+    /// rows, or not.
     ///
-    /// An expression that evaluates to true if the record referred by this
-    /// `TableAlias` exists.
+    /// In the example below, we only fetch books that are not associated to
+    /// any author:
     ///
-    /// For example, here is how filter books and only keep those that are not
-    /// associated to any author:
+    /// ```swift
+    /// struct Author: TableRecord, FetchableRecord { }
+    /// struct Book: TableRecord, FetchableRecord {
+    ///     static let author = belongsTo(Author.self)
+    /// }
     ///
-    ///     let books: [Book] = try dbQueue.read { db in
-    ///         let authorAlias = TableAlias()
-    ///         let request = Book
-    ///             .joining(optional: Book.author.aliased(authorAlias))
-    ///             .filter(!authorAlias.exists)
-    ///         return try request.fetchAll(db)
-    ///     }
+    /// try dbQueue.read { db in
+    ///     let authorAlias = TableAlias()
+    ///     let request = Book
+    ///         .joining(optional: Book.author.aliased(authorAlias))
+    ///         .filter(!authorAlias.exists)
+    ///     let books = try request.fetchAll(db)
+    /// }
+    /// ```
     public var exists: SQLExpression {
         SQLExpression.qualifiedExists(self)
     }
-    
-    /// :nodoc:
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(ObjectIdentifier(root))
-    }
-    
-    /// :nodoc:
+}
+
+extension TableAlias: Equatable {
     public static func == (lhs: TableAlias, rhs: TableAlias) -> Bool {
         ObjectIdentifier(lhs.root) == ObjectIdentifier(rhs.root)
+    }
+}
+
+extension TableAlias: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(root))
     }
 }
 

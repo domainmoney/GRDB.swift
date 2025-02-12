@@ -14,7 +14,7 @@ private class Citizenship : Record, Hashable {
         super.init()
     }
     
-    static func setup(inDatabase db: Database) throws {
+    static func setup(_ db: Database) throws {
         try db.execute(sql: """
             CREATE TABLE citizenships (
                 personName TEXT NOT NULL,
@@ -61,7 +61,9 @@ class RecordPrimaryKeyMultipleTests: GRDBTestCase {
     
     override func setup(_ dbWriter: some DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
-        migrator.registerMigration("createCitizenship", migrate: Citizenship.setup)
+        migrator.registerMigration("createCitizenship") {
+            try Citizenship.setup($0)
+        }
         try migrator.migrate(dbWriter)
     }
     
@@ -129,9 +131,9 @@ class RecordPrimaryKeyMultipleTests: GRDBTestCase {
             let record = Citizenship(personName: nil, countryName: nil, native: true)
             do {
                 try record.update(db)
-                XCTFail("Expected PersistenceError.recordNotFound")
-            } catch let PersistenceError.recordNotFound(databaseTableName: databaseTableName, key: key) {
-                // Expected PersistenceError.recordNotFound
+                XCTFail("Expected RecordError.recordNotFound")
+            } catch let RecordError.recordNotFound(databaseTableName: databaseTableName, key: key) {
+                // Expected RecordError.recordNotFound
                 XCTAssertEqual(databaseTableName, "citizenships")
                 XCTAssertEqual(key, ["countryName": .null, "personName": .null])
             }
@@ -144,9 +146,9 @@ class RecordPrimaryKeyMultipleTests: GRDBTestCase {
             let record = Citizenship(personName: "Arthur", countryName: "France", native: true)
             do {
                 try record.update(db)
-                XCTFail("Expected PersistenceError.recordNotFound")
-            } catch let PersistenceError.recordNotFound(databaseTableName: databaseTableName, key: key) {
-                // Expected PersistenceError.recordNotFound
+                XCTFail("Expected RecordError.recordNotFound")
+            } catch let RecordError.recordNotFound(databaseTableName: databaseTableName, key: key) {
+                // Expected RecordError.recordNotFound
                 XCTAssertEqual(databaseTableName, "citizenships")
                 XCTAssertEqual(key, ["countryName": "France".databaseValue, "personName": "Arthur".databaseValue])
             }
@@ -174,9 +176,9 @@ class RecordPrimaryKeyMultipleTests: GRDBTestCase {
             try record.delete(db)
             do {
                 try record.update(db)
-                XCTFail("Expected PersistenceError.recordNotFound")
-            } catch let PersistenceError.recordNotFound(databaseTableName: databaseTableName, key: key) {
-                // Expected PersistenceError.recordNotFound
+                XCTFail("Expected RecordError.recordNotFound")
+            } catch let RecordError.recordNotFound(databaseTableName: databaseTableName, key: key) {
+                // Expected RecordError.recordNotFound
                 XCTAssertEqual(databaseTableName, "citizenships")
                 XCTAssertEqual(key, ["countryName": "France".databaseValue, "personName": "Arthur".databaseValue])
             }
@@ -384,6 +386,20 @@ class RecordPrimaryKeyMultipleTests: GRDBTestCase {
         }
     }
     
+    func testFindWithKey() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let record = Citizenship(personName: "Arthur", countryName: "France", native: true)
+            try record.insert(db)
+            
+            let fetchedRecord = try Citizenship.find(db, key: ["personName": record.personName, "countryName": record.countryName])
+            XCTAssertTrue(fetchedRecord.personName == record.personName)
+            XCTAssertTrue(fetchedRecord.countryName == record.countryName)
+            XCTAssertTrue(fetchedRecord.native == record.native)
+            XCTAssertEqual(lastSQLQuery, "SELECT * FROM \"citizenships\" WHERE (\"personName\" = '\(record.personName!)') AND (\"countryName\" = '\(record.countryName!)')")
+        }
+    }
+
     
     // MARK: - Fetch With Key Request
     
@@ -491,6 +507,17 @@ class RecordPrimaryKeyMultipleTests: GRDBTestCase {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
             let request = Citizenship.orderByPrimaryKey()
+            try assertEqualSQL(db, request, "SELECT * FROM \"citizenships\" ORDER BY \"personName\", \"countryName\"")
+        }
+    }
+    
+    
+    // MARK: - Stable order
+    
+    func testStableOrder() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.inDatabase { db in
+            let request = Citizenship.all().withStableOrder()
             try assertEqualSQL(db, request, "SELECT * FROM \"citizenships\" ORDER BY \"personName\", \"countryName\"")
         }
     }

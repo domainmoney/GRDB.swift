@@ -1,20 +1,19 @@
 import Foundation
 
-/// Controls the extent of the shared database observation
-/// of `SharedValueObservation`.
-public enum SharedValueObservationExtent {
-    /// The `SharedValueObservation` starts a single database observation, which
-    /// ends when the `SharedValueObservation` is deallocated and all
+/// The extent of the shared subscription to a ``SharedValueObservation``.
+public enum SharedValueObservationExtent: Sendable {
+    /// The ``SharedValueObservation`` starts a single database observation,
+    /// which stops when the `SharedValueObservation` is deallocated and all
     /// subscriptions terminated.
     ///
     /// This extent prevents the shared observation from recovering from
-    /// database errors. To recover from database errors, create a new shared
-    /// `SharedValueObservation` instance.
+    /// database errors. To recover from database errors, you must create a new
+    /// shared `SharedValueObservation` instance.
     case observationLifetime
     
-    /// The `SharedValueObservation` ends database observation when the number
-    /// of subscriptions drops down to zero. The database observation restarts
-    /// on the next subscription.
+    /// The ``SharedValueObservation`` stops database observation when the
+    /// number of subscriptions drops down to zero. Database observation
+    /// restarts on the next subscription.
     ///
     /// Database errors can be recovered by resubscribing to the
     /// shared observation.
@@ -22,56 +21,95 @@ public enum SharedValueObservationExtent {
 }
 
 extension ValueObservation {
-    /// Returns a shared value observation that shares a single underlying
-    /// database observation for all subscriptions, and thus spares
-    /// database resources.
+    /// Returns a shared value observation that spares database resources by
+    /// sharing a single underlying ``ValueObservation`` subscription.
     ///
-    /// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
-    /// 
+    /// - note: [**🔥 EXPERIMENTAL**](https://github.com/groue/GRDB.swift/blob/master/README.md#what-are-experimental-features)
+    ///
     /// For example:
     ///
-    ///     let sharedObservation = ValueObservation
-    ///         .tracking { db in try Player.fetchAll(db) }
-    ///         .shared(in: dbQueue)
+    /// ```swift
+    /// let observation = ValueObservation.tracking { db in
+    ///     try Player.fetchAll(db)
+    /// }
     ///
-    /// The sharing only applies if you start observing the database from the
-    /// same `SharedValueObservation` instance:
+    /// let sharedObservation = observation.shared(in: dbQueue)
     ///
-    ///     // NOT shared
-    ///     let cancellable1 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
-    ///     let cancellable2 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
+    /// let cancellable = try sharedObservation.start { error in
+    ///     // handle error
+    /// } onChange: { (players: [Player]) in
+    ///     print("Fresh players: \(players)")
+    /// }
+    /// ```
     ///
-    ///     // Shared
-    ///     let sharedObservation = ValueObservation.tracking { db in ... }.shared(in: dbQueue)
-    ///     let cancellable1 = sharedObservation.start(...)
-    ///     let cancellable2 = sharedObservation.start(...)
+    /// The underlying subscription is shared if and only if you start observing
+    /// the database from the same `SharedValueObservation` instance:
     ///
-    /// By default, fresh values are dispatched asynchronously on the
-    /// main queue. You can change this behavior by providing a scheduler.
-    /// For example, `.immediate` notifies all values on the main queue as well,
-    /// and the first one is immediately notified when the start() method
-    /// is called:
+    /// ```swift
+    /// // Shared
+    /// let sharedObservation = ValueObservation.tracking { db in ... }.shared(in: dbQueue)
+    /// let cancellable1 = sharedObservation.start(...)
+    /// let cancellable2 = sharedObservation.start(...)
     ///
-    ///     let sharedObservation = ValueObservation
-    ///         .tracking { db in try Player.fetchAll(db) }
-    ///         .shared(
-    ///             in: dbQueue,
-    ///             scheduling: .immediate) // <-
-    ///
-    ///     let cancellable = try sharedObservation.start(
-    ///         onError: { error in ... },
-    ///         onChange: { (players: [Player]) in
-    ///             print("fresh players: \(players)")
-    ///         })
-    ///     // <- here "fresh players" is already printed.
-    ///
-    /// Note that the `.immediate` scheduler requires that the observation is
-    /// subscribed from the main thread. It raises a fatal error otherwise.
+    /// // NOT shared
+    /// let cancellable1 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
+    /// let cancellable2 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
+    /// ```
     ///
     /// A shared observation starts observing the database as soon as it is
     /// subscribed. You can choose if database observation should stop, or not,
     /// when its number of subscriptions drops down to zero, with the `extent`
-    /// parameter. See `SharedValueObservationExtent` for available options.
+    /// parameter:
+    ///
+    /// ```swift
+    /// // The default: stops observing the database when the number of
+    /// // subscriptions drops down to zero, and restart database observation
+    /// // on the next subscription.
+    /// //
+    /// // Database errors can be recovered by resubscribing to the
+    /// // shared observation.
+    /// let sharedObservation = ValueObservation
+    ///     .tracking { db in try Player.fetchAll(db) }
+    ///     .shared(in: dbQueue, extent: .whileObserved)
+    ///
+    /// // Only stops observing the database when the shared observation
+    /// // is deinitialized, and all subscriptions are cancelled.
+    /// //
+    /// // This extent prevents the shared observation from recovering
+    /// // from database errors. To recover from database errors, create a new
+    /// // shared SharedValueObservation instance.
+    /// let sharedObservation = ValueObservation
+    ///     .tracking { db in try Player.fetchAll(db) }
+    ///     .shared(in: dbQueue, extent: .observationLifetime)
+    /// ```
+    ///
+    /// By default, fresh values are dispatched asynchronously on the
+    /// main dispatch queue. You can change this behavior by providing a
+    /// scheduler.
+    ///
+    /// For example, the ``ValueObservationMainActorScheduler/immediate``
+    /// scheduler notifies all values on the main dispatch queue, and
+    /// notifies the first one immediately when the
+    /// ``SharedValueObservation/start(onError:onChange:)`` method is called.
+    /// The `immediate` scheduling requires that the observation starts from the
+    /// main thread (a fatal error is raised otherwise):
+    ///
+    /// ```swift
+    /// let observation = ValueObservation.tracking { db in
+    ///     try Player.fetchAll(db)
+    /// }
+    ///
+    /// let sharedObservation = observation.shared(
+    ///     in: dbQueue,
+    ///     scheduling: .immediate)
+    ///
+    /// let cancellable = try sharedObservation.start { error in
+    ///     // handle error
+    /// } onChange: { (players: [Player]) in
+    ///     print("Fresh players: \(players)")
+    /// }
+    /// // <- here "Fresh players" is already printed.
+    /// ```
     ///
     /// - parameter reader: A DatabaseReader.
     /// - parameter scheduler: A Scheduler. By default, fresh values are
@@ -79,8 +117,8 @@ extension ValueObservation {
     /// - parameter extent: The extent of the shared database observation.
     /// - returns: A `SharedValueObservation`
     public func shared(
-        in reader: some DatabaseReader,
-        scheduling scheduler: ValueObservationScheduler = .async(onQueue: .main),
+        in reader: any DatabaseReader,
+        scheduling scheduler: some ValueObservationScheduler = .async(onQueue: .main),
         extent: SharedValueObservationExtent = .whileObserved)
     -> SharedValueObservation<Reducer.Value>
     where Reducer: ValueReducer
@@ -91,36 +129,44 @@ extension ValueObservation {
     }
 }
 
-/// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
+/// A shared value observation spares database resources by sharing a single
+/// underlying ``ValueObservation`` subscription.
 ///
-/// A shared value observation that shares a single underlying database
-/// observation for all subscriptions, and thus spares database resources.
+/// - note: [**🔥 EXPERIMENTAL**](https://github.com/groue/GRDB.swift/blob/master/README.md#what-are-experimental-features)
 ///
-/// For example:
+/// You build a `SharedValueObservation` with the ``ValueObservation`` method
+/// ``ValueObservation/shared(in:scheduling:extent:)``. For example:
 ///
-///     let sharedObservation = ValueObservation
-///         .tracking { db in try Player.fetchAll(db) }
-///         .shared(in: dbQueue)
+/// ```swift
+/// let observation = ValueObservation.tracking { db in
+///     try Player.fetchAll(db)
+/// }
 ///
-///     let cancellable = try sharedObservation.start(
-///         onError: { error in ... },
-///         onChange: { (players: [Player]) in
-///             print("Players have changed.")
-///         })
+/// let sharedObservation = observation.shared(in: dbQueue)
 ///
-/// The sharing only applies if you start observing the database from the
-/// same `SharedValueObservation` instance:
+/// let cancellable = try sharedObservation.start { error in
+///     // handle error
+/// } onChange: { (players: [Player]) in
+///     print("Fresh players: \(players)")
+/// }
+/// ```
 ///
-///     // NOT shared
-///     let cancellable1 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
-///     let cancellable2 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
+/// The underlying subscription is shared if and only if you start observing
+/// the database from the same `SharedValueObservation` instance:
 ///
-///     // Shared
-///     let sharedObservation = ValueObservation.tracking { db in ... }.shared(in: dbQueue)
-///     let cancellable1 = sharedObservation.start(...)
-///     let cancellable2 = sharedObservation.start(...)
-public final class SharedValueObservation<Element> {
-    private let scheduler: ValueObservationScheduler
+/// ```swift
+/// // Shared
+/// let sharedObservation = ValueObservation.tracking { db in ... }.shared(in: dbQueue)
+/// let cancellable1 = sharedObservation.start(...)
+/// let cancellable2 = sharedObservation.start(...)
+///
+/// // NOT shared
+/// let cancellable1 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
+/// let cancellable2 = ValueObservation.tracking { db in ... }.shared(in: dbQueue).start(...)
+/// ```
+public final class SharedValueObservation<Element: Sendable>: @unchecked Sendable {
+    // @unchecked Sendable because state is protected by `lock`.
+    private let scheduler: any ValueObservationScheduler
     private let extent: SharedValueObservationExtent
     private let startObservation: ValueObservationStart<Element>
     private let lock = NSRecursiveLock() // support synchronous observation events
@@ -131,18 +177,21 @@ public final class SharedValueObservation<Element> {
     private var cancellable: AnyDatabaseCancellable?
     private var lastResult: Result<Element, Error>?
     
-    private final class Client {
-        var onError: (Error) -> Void
-        var onChange: (Element) -> Void
+    private final class Client: Sendable {
+        let onError: @Sendable (Error) -> Void
+        let onChange: @Sendable (Element) -> Void
         
-        init(onError: @escaping (Error) -> Void, onChange: @escaping (Element) -> Void) {
+        init(
+            onError: @escaping @Sendable (Error) -> Void,
+            onChange: @escaping @Sendable (Element) -> Void
+        ) {
             self.onError = onError
             self.onChange = onChange
         }
     }
     
     fileprivate init(
-        scheduling scheduler: ValueObservationScheduler,
+        scheduling scheduler: some ValueObservationScheduler,
         extent: SharedValueObservationExtent,
         startObservation: @escaping ValueObservationStart<Element>)
     {
@@ -159,26 +208,28 @@ public final class SharedValueObservation<Element> {
     ///
     /// For example:
     ///
-    ///     let sharedObservation = ValueObservation
-    ///         .tracking { db in try Player.fetchAll(db) }
-    ///         .shared(in: dbQueue)
+    /// ```swift
+    /// let sharedObservation = ValueObservation
+    ///     .tracking { db in try Player.fetchAll(db) }
+    ///     .shared(in: dbQueue)
     ///
-    ///     let cancellable = try sharedObservation.start(
-    ///         onError: { error in ... },
-    ///         onChange: { (players: [Player]) in
-    ///             print("fresh players: \(players)")
-    ///         })
+    /// let cancellable = try sharedObservation.start { error in
+    ///     // handle error
+    /// } onChange: { (players: [Player]) in
+    ///     print("fresh players: \(players)")
+    /// }
+    /// ```
     ///
-    /// - parameter onError: A closure that is provided eventual errors that
-    ///   happen during observation
-    /// - parameter onChange: A closure that is provided fresh values
-    /// - returns: a DatabaseCancellable
-    public func start(
-        onError: @escaping (Error) -> Void,
-        onChange: @escaping (Element) -> Void)
+    /// - parameter onError: The closure to execute when the observation fails.
+    /// - parameter onChange: The closure to execute on receipt of a
+    ///   fresh value.
+    /// - returns: A DatabaseCancellable that can stop the observation.
+    @preconcurrency public func start(
+        onError: @escaping @Sendable (Error) -> Void,
+        onChange: @escaping @Sendable (Element) -> Void)
     -> AnyDatabaseCancellable
     {
-        synchronized {
+        withLock {
             // Support for reentrancy: a shared immediate observation is
             // started from the first value notification of that same shared
             // immediate observation. Yeah, users are nasty.
@@ -224,23 +275,23 @@ public final class SharedValueObservation<Element> {
     }
     
 #if canImport(Combine)
-    /// Creates a publisher which tracks changes in database values.
+    /// Returns a publisher of observed values.
     ///
     /// For example:
     ///
-    ///     let publisher = ValueObservation
-    ///         .tracking { db in try Player.fetchAll(db) }
-    ///         .shared(in: dbQueue)
-    ///         .publisher()
+    /// ```swift
+    /// let observation = ValueObservation
+    ///     .tracking { db in try Player.fetchAll(db) }
+    ///     .shared(in: dbQueue)
     ///
-    ///     let cancellable = publisher.sink(
-    ///         receiveCompletion: { completion in ... },
-    ///         receiveValue: { (players: [Player]) in
-    ///             print("fresh players: \(players)")
-    ///         })
+    /// let publisher = observation.publisher()
     ///
-    /// - returns: A Combine publisher
-    @available(OSX 10.15, iOS 13, tvOS 13, watchOS 6, *)
+    /// let cancellable = publisher.sink { completion in
+    ///     // handle completion
+    /// } receiveValue: { (players: [Player]) in
+    ///     print("fresh players: \(players)")
+    /// }
+    /// ```
     public func publisher() -> DatabasePublishers.Value<Element> {
         DatabasePublishers.Value { onError, onChange in
             self.start(onError: onError, onChange: onChange)
@@ -249,7 +300,7 @@ public final class SharedValueObservation<Element> {
 #endif
     
     private func handleError(_ error: Error) {
-        synchronized {
+        withLock {
             let notifiedClients = clients
             
             // State change
@@ -270,7 +321,7 @@ public final class SharedValueObservation<Element> {
     }
     
     private func handleChange(_ value: Element) {
-        synchronized {
+        withLock {
             // State change
             lastResult = .success(value)
             
@@ -282,7 +333,7 @@ public final class SharedValueObservation<Element> {
     }
     
     private func handleCancel(_ client: Client) {
-        synchronized {
+        withLock {
             // State change
             clients.removeFirst(where: { $0 === client })
             if clients.isEmpty && extent == .whileObserved {
@@ -293,7 +344,7 @@ public final class SharedValueObservation<Element> {
         }
     }
     
-    private func synchronized<T>(_ execute: () throws -> T) rethrows -> T {
+    private func withLock<T>(_ execute: () throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
         return try execute()
@@ -302,11 +353,19 @@ public final class SharedValueObservation<Element> {
 
 extension SharedValueObservation {
     // MARK: - Asynchronous Observation
-    /// The database observation, as an asynchronous sequence of
-    /// database changes.
+    /// Returns an asynchronous sequence of observed values.
     ///
-    /// [**Experimental**](http://github.com/groue/GRDB.swift#what-are-experimental-features)
-    @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+    /// For example:
+    ///
+    /// ```swift
+    /// let sharedObservation = ValueObservation
+    ///     .tracking { db in try Player.fetchAll(db) }
+    ///     .shared(in: dbQueue)
+    ///
+    /// for try await players in sharedObservation.values() {
+    ///     print("Fresh players: \(players)")
+    /// }
+    /// ```
     public func values(bufferingPolicy: AsyncValueObservation<Element>.BufferingPolicy = .unbounded)
     -> AsyncValueObservation<Element>
     {

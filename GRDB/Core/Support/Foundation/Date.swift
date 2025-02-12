@@ -1,25 +1,29 @@
+import SQLCipher
+
 import Foundation
 
 #if !os(Linux)
 /// NSDate is stored in the database using the format
 /// "yyyy-MM-dd HH:mm:ss.SSS", in the UTC time zone.
 extension NSDate: DatabaseValueConvertible {
-    /// Returns a database value that contains the date encoded as
+    /// Returns a TEXT database value that contains the date encoded as
     /// "yyyy-MM-dd HH:mm:ss.SSS", in the UTC time zone.
     public var databaseValue: DatabaseValue {
         (self as Date).databaseValue
     }
-    
-    /// Returns a date initialized from dbValue, if possible.
+
+    /// Creates an `NSDate` with the specified database value.
     ///
-    /// If database value contains a number, that number is interpreted as a
+    /// If the database value contains a number, that number is interpreted as a
     /// timeinterval since 00:00:00 UTC on 1 January 1970.
     ///
-    /// If database value contains a string, that string is interpreted as a
+    /// If the database value contains a string, that string is interpreted as a
     /// [SQLite date](https://sqlite.org/lang_datefunc.html) in the UTC time
     /// zone. Nil is returned if the date string does not contain at least the
     /// year, month and day components. Other components (minutes, etc.)
     /// are set to zero if missing.
+    ///
+    /// Otherwise, returns nil.
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Self? {
         guard let date = Date.fromDatabaseValue(dbValue) else {
             return nil
@@ -32,22 +36,24 @@ extension NSDate: DatabaseValueConvertible {
 /// Date is stored in the database using the format
 /// "yyyy-MM-dd HH:mm:ss.SSS", in the UTC time zone.
 extension Date: DatabaseValueConvertible {
-    /// Returns a database value that contains the date encoded as
+    /// Returns a TEXT database value that contains the date encoded as
     /// "yyyy-MM-dd HH:mm:ss.SSS", in the UTC time zone.
     public var databaseValue: DatabaseValue {
         storageDateFormatter.string(from: self).databaseValue
     }
-    
-    /// Returns a date initialized from dbValue, if possible.
+
+    /// Creates an `Date` with the specified database value.
     ///
-    /// If database value contains a number, that number is interpreted as a
+    /// If the database value contains a number, that number is interpreted as a
     /// timeinterval since 00:00:00 UTC on 1 January 1970.
     ///
-    /// If database value contains a string, that string is interpreted as a
+    /// If the database value contains a string, that string is interpreted as a
     /// [SQLite date](https://sqlite.org/lang_datefunc.html) in the UTC time
     /// zone. Nil is returned if the date string does not contain at least the
     /// year, month and day components. Other components (minutes, etc.)
     /// are set to zero if missing.
+    ///
+    /// Otherwise, returns nil.
     public static func fromDatabaseValue(_ dbValue: DatabaseValue) -> Date? {
         if let databaseDateComponents = DatabaseDateComponents.fromDatabaseValue(dbValue) {
             return Date(databaseDateComponents: databaseDateComponents)
@@ -57,7 +63,7 @@ extension Date: DatabaseValueConvertible {
         }
         return nil
     }
-    
+
     @usableFromInline
     init?(databaseDateComponents: DatabaseDateComponents) {
         guard databaseDateComponents.format.hasYMDComponents else {
@@ -69,7 +75,7 @@ extension Date: DatabaseValueConvertible {
         }
         self.init(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate)
     }
-    
+
     /// Creates a date from a [Julian Day](https://en.wikipedia.org/wiki/Julian_day).
     public init?(julianDay: Double) {
         // Conversion uses the same algorithm as SQLite: https://www.sqlite.org/src/artifact/8ec787fed4929d8c
@@ -94,7 +100,7 @@ extension Date: DatabaseValueConvertible {
         s -= hour*3600
         let minute = s/60
         second += Double(s - minute*60)
-        
+
         var dateComponents = DateComponents()
         dateComponents.year = year
         dateComponents.month = month
@@ -103,7 +109,7 @@ extension Date: DatabaseValueConvertible {
         dateComponents.minute = minute
         dateComponents.second = Int(second)
         dateComponents.nanosecond = Int((second - Double(Int(second))) * 1.0e9)
-        
+
         guard let date = UTCCalendar.date(from: dateComponents) else {
             return nil
         }
@@ -112,7 +118,7 @@ extension Date: DatabaseValueConvertible {
 }
 
 extension Date: StatementColumnConvertible {
-    
+
     /// Returns a value initialized from a raw SQLite statement pointer.
     ///
     /// - parameters:

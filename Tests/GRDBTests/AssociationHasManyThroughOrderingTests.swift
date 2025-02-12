@@ -32,16 +32,16 @@ class AssociationHasManyThroughOrderingTests: GRDBTestCase {
     override func setup(_ dbWriter: some DatabaseWriter) throws {
         try dbWriter.write { db in
             try db.create(table: "team") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
                 t.column("name", .text).notNull()
             }
             try db.create(table: "player") { t in
-                t.column("id", .integer).primaryKey()
+                t.primaryKey("id", .integer)
                 t.column("name", .text).notNull()
             }
             try db.create(table: "playerRole") { t in
-                t.column("teamId", .integer).notNull().references("team")
-                t.column("playerId", .integer).notNull().references("player")
+                t.belongsTo("team").notNull()
+                t.belongsTo("player").notNull()
                 t.column("position", .integer).notNull()
                 t.primaryKey(["teamId", "playerId"])
             }

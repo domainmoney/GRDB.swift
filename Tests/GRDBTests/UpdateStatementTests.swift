@@ -1,8 +1,10 @@
+import SQLCipher
+
 import XCTest
 import GRDB
 
 class UpdateStatementTests : GRDBTestCase {
-    
+
     override func setup(_ dbWriter: some DatabaseWriter) throws {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("createPersons") { db in
@@ -16,7 +18,7 @@ class UpdateStatementTests : GRDBTestCase {
         }
         try migrator.migrate(dbWriter)
     }
-    
+
     func testTrailingSemicolonAndWhiteSpaceIsAcceptedAndOptional() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inTransaction { db in
@@ -33,7 +35,7 @@ class UpdateStatementTests : GRDBTestCase {
             XCTAssertEqual(names, ["Arthur", "Barbara", "Craig", "Daniel", "Eugene", "Fiona"])
         }
     }
-    
+
     func testStatementSQL() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -45,24 +47,24 @@ class UpdateStatementTests : GRDBTestCase {
             try XCTAssertEqual(db.makeStatement(sql: " INSERT INTO persons (name, age) VALUES ('Arthur', ?)\u{000C}" /* \f */).sql, "INSERT INTO persons (name, age) VALUES ('Arthur', ?)")
         }
     }
-    
+
     func testArrayStatementArguments() throws {
         let dbQueue = try makeDatabaseQueue()
-        
+
         try dbQueue.inTransaction { db in
-            
+
             let statement = try db.makeStatement(sql: "INSERT INTO persons (name, age) VALUES (?, ?)")
-            let persons: [[DatabaseValueConvertible?]] = [
+            let persons: [[(any DatabaseValueConvertible)?]] = [
                 ["Arthur", 41],
                 ["Barbara", nil],
                 ]
             for person in persons {
                 try statement.execute(arguments: StatementArguments(person))
             }
-            
+
             return .commit
         }
-        
+
         try dbQueue.inDatabase { db in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM persons ORDER BY name")
             XCTAssertEqual(rows.count, 2)
@@ -75,11 +77,11 @@ class UpdateStatementTests : GRDBTestCase {
 
     func testStatementArgumentsSetterWithArray() throws {
         let dbQueue = try makeDatabaseQueue()
-        
+
         try dbQueue.inTransaction { db in
-            
+
             let statement = try db.makeStatement(sql: "INSERT INTO persons (name, age) VALUES (?, ?)")
-            let persons: [[DatabaseValueConvertible?]] = [
+            let persons: [[(any DatabaseValueConvertible)?]] = [
                 ["Arthur", 41],
                 ["Barbara", nil],
                 ]
@@ -87,10 +89,10 @@ class UpdateStatementTests : GRDBTestCase {
                 statement.arguments = StatementArguments(person)
                 try statement.execute()
             }
-            
+
             return .commit
         }
-        
+
         try dbQueue.inDatabase { db in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM persons ORDER BY name")
             XCTAssertEqual(rows.count, 2)
@@ -103,21 +105,21 @@ class UpdateStatementTests : GRDBTestCase {
 
     func testDictionaryStatementArguments() throws {
         let dbQueue = try makeDatabaseQueue()
-        
+
         try dbQueue.inTransaction { db in
-            
+
             let statement = try db.makeStatement(sql: "INSERT INTO persons (name, age) VALUES (:name, :age)")
-            let persons: [[String: DatabaseValueConvertible?]] = [
+            let persons: [[String: (any DatabaseValueConvertible)?]] = [
                 ["name": "Arthur", "age": 41],
                 ["name": "Barbara", "age": nil],
                 ]
             for person in persons {
                 try statement.execute(arguments: StatementArguments(person))
             }
-            
+
             return .commit
         }
-        
+
         try dbQueue.inDatabase { db in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM persons ORDER BY name")
             XCTAssertEqual(rows.count, 2)
@@ -130,11 +132,11 @@ class UpdateStatementTests : GRDBTestCase {
 
     func testStatementArgumentsSetterWithDictionary() throws {
         let dbQueue = try makeDatabaseQueue()
-        
+
         try dbQueue.inTransaction { db in
-            
+
             let statement = try db.makeStatement(sql: "INSERT INTO persons (name, age) VALUES (:name, :age)")
-            let persons: [[String: DatabaseValueConvertible?]] = [
+            let persons: [[String: (any DatabaseValueConvertible)?]] = [
                 ["name": "Arthur", "age": 41],
                 ["name": "Barbara", "age": nil],
                 ]
@@ -142,10 +144,10 @@ class UpdateStatementTests : GRDBTestCase {
                 statement.arguments = StatementArguments(person)
                 try statement.execute()
             }
-            
+
             return .commit
         }
-        
+
         try dbQueue.inDatabase { db in
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM persons ORDER BY name")
             XCTAssertEqual(rows.count, 2)
@@ -166,20 +168,19 @@ class UpdateStatementTests : GRDBTestCase {
             try statement.execute()
         }
     }
-    
+
     func testUpdateStatementAcceptsSelectQueriesAndConsumeAllRows() throws {
         let dbQueue = try makeDatabaseQueue()
-        var index = 0
+        let indexMutex = Mutex(0)
         try dbQueue.inDatabase { db in
             db.add(function: DatabaseFunction("seq", argumentCount: 0, pure: false) { _ in
-                defer { index += 1 }
-                return index
+                indexMutex.increment()
             })
             try db.execute(sql: "SELECT seq() UNION ALL SELECT seq() UNION ALL SELECT seq()")
             let statement = try db.makeStatement(sql: "SELECT seq() UNION ALL SELECT seq() UNION ALL SELECT seq()")
             try statement.execute()
         }
-        XCTAssertEqual(index, 3 + 3)
+        XCTAssertEqual(indexMutex.load(), 3 + 3)
     }
 
     func testExecuteNothing() throws {
@@ -196,7 +197,7 @@ class UpdateStatementTests : GRDBTestCase {
             try db.execute(sql: "-- comment\\n; -----ignored")
         }
     }
-    
+
     func testExecuteMultipleStatement() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -241,7 +242,7 @@ class UpdateStatementTests : GRDBTestCase {
             XCTAssertTrue(try db.tableExists("books"))
         }
     }
-    
+
     func testExecuteMultipleStatementWithNamedArguments() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inTransaction { db in
@@ -252,7 +253,7 @@ class UpdateStatementTests : GRDBTestCase {
             XCTAssertEqual(try Int.fetchAll(db, sql: "SELECT age FROM persons ORDER BY age"), [32, 41])
             return .rollback
         }
-        
+
         try dbQueue.inTransaction { db in
             try db.execute(sql: """
                 INSERT INTO persons (name, age) VALUES ('Arthur', :age1);
@@ -273,7 +274,7 @@ class UpdateStatementTests : GRDBTestCase {
             XCTAssertEqual(try Int.fetchAll(db, sql: "SELECT age FROM persons"), [41, 41])
             return .rollback
         }
-        
+
         try dbQueue.inTransaction { db in
             try db.execute(sql: """
                 INSERT INTO persons (name, age) VALUES ('Arthur', :age);
@@ -283,7 +284,7 @@ class UpdateStatementTests : GRDBTestCase {
             return .rollback
         }
     }
-    
+
     func testExecuteMultipleStatementWithPositionalArguments() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inTransaction { db in
@@ -295,7 +296,7 @@ class UpdateStatementTests : GRDBTestCase {
             return .rollback
         }
     }
-    
+
     func testExecuteMultipleStatementWithTooManyArguments() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inTransaction { db in
@@ -309,7 +310,7 @@ class UpdateStatementTests : GRDBTestCase {
             }
             return .rollback
         }
-        
+
         try dbQueue.inTransaction { db in
             do {
                 try db.execute(sql: """
@@ -322,15 +323,15 @@ class UpdateStatementTests : GRDBTestCase {
                 XCTAssertEqual(error.message!, "wrong number of statement arguments: 3")
                 XCTAssertEqual(error.description, "SQLite error 21: wrong number of statement arguments: 3")
             }
-            
+
             // Both statements were run
             let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM persons")!
             XCTAssertEqual(count, 2)
-            
+
             return .rollback
         }
     }
-    
+
     func testExecuteMultipleStatementWithTooFewArguments() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inTransaction { db in
@@ -348,11 +349,11 @@ class UpdateStatementTests : GRDBTestCase {
                     - while executing `INSERT INTO persons (name, age) VALUES ('Arthur', ?)`
                     """)
             }
-            
+
             // First statement did run
             let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM persons")!
             XCTAssertEqual(count, 1)
-            
+
             return .rollback
         }
     }
@@ -371,7 +372,7 @@ class UpdateStatementTests : GRDBTestCase {
             }
         }
     }
-    
+
     func testMultipleValidStatementsError() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.inDatabase { db in
@@ -388,7 +389,7 @@ class UpdateStatementTests : GRDBTestCase {
                 XCTAssertEqual(error.description, """
                     SQLite error 21: Multiple statements found. To execute multiple statements, \
                     use Database.execute(sql:) or Database.allStatements(sql:) instead. \
-                    - while executing `UPDATE persons SET age = 1; UPDATE persons SET age = 2;`
+                    - while executing `UPDATE persons SET age = 1; UPDATE persons SET age = 2`
                     """)
             }
         }
@@ -415,7 +416,7 @@ class UpdateStatementTests : GRDBTestCase {
             }
         }
     }
-    
+
     func testExecuteSQLLiteral() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.write { db in
@@ -428,7 +429,7 @@ class UpdateStatementTests : GRDBTestCase {
             XCTAssertEqual(value, 3)
         }
     }
-    
+
     func testExecuteSQLLiteralWithInterpolation() throws {
         let dbQueue = try makeDatabaseQueue()
         try dbQueue.write { db in
@@ -439,6 +440,157 @@ class UpdateStatementTests : GRDBTestCase {
                 """)
             let value = try Int.fetchOne(db, sql: "SELECT SUM(a) FROM t")
             XCTAssertEqual(value, 3)
+        }
+    }
+
+    // MARK: - SQLITE_STATIC vs SQLITE_TRANSIENT
+
+    func test_SQLITE_STATIC_then_SQLITE_TRANSIENT() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                CREATE TABLE t(a);
+                """)
+
+            func test(value: some DatabaseValueConvertible) throws {
+                defer { try! db.execute(sql: "DELETE FROM t") }
+
+                // Execute with temporary bindings (SQLITE_STATIC)
+                let statement = try db.makeStatement(sql: "INSERT INTO t VALUES (?)")
+                try statement.execute(arguments: [value])
+
+                // Execute with non temporary bindings (SQLITE_TRANSIENT)
+                try statement.execute()
+
+                // Since bindings are not temporary, they are not cleared,
+                // so insert the value again.
+                sqlite3_reset(statement.sqliteStatement)
+                sqlite3_step(statement.sqliteStatement)
+                sqlite3_reset(statement.sqliteStatement)
+
+                // Test that we have inserted the value thrice.
+                try XCTAssertEqual(
+                    DatabaseValue.fetchSet(db, sql: "SELECT a FROM t"),
+                    [value.databaseValue])
+            }
+
+            try test(value: "Foo")
+            try test(value: "")
+            try test(value: "Hello".data(using: .utf8)!)
+            try test(value: Data())
+            try test(value: 42)
+            try test(value: 1.23)
+        }
+    }
+
+    func test_SQLITE_STATIC() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                CREATE TABLE t(a);
+                """)
+
+            func test(value: some DatabaseValueConvertible) throws {
+                defer { try! db.execute(sql: "DELETE FROM t") }
+
+                // Execute with temporary bindings (SQLITE_STATIC)
+                let statement = try db.makeStatement(sql: "INSERT INTO t VALUES (?)")
+                try statement.execute(arguments: [value])
+
+                // Since bindings were temporary, and cleared, we now insert NULL
+                sqlite3_reset(statement.sqliteStatement)
+                sqlite3_step(statement.sqliteStatement)
+                sqlite3_reset(statement.sqliteStatement)
+
+                // Test that we have inserted the value, and NULL
+                try XCTAssertEqual(
+                    DatabaseValue.fetchSet(db, sql: "SELECT a FROM t"),
+                    [value.databaseValue, .null])
+            }
+
+            try test(value: "Foo")
+            try test(value: "")
+            try test(value: "Hello".data(using: .utf8)!)
+            try test(value: Data())
+            try test(value: 42)
+            try test(value: 1.23)
+        }
+    }
+
+    func test_SQLITE_TRANSIENT_due_to_high_number_of_arguments() throws {
+        // SQLITE_STATIC optimization is disabled for more than 20 arguments.
+        let argumentCount = 21
+
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.write { db in
+            // "a0, a1, a2, ..."
+            let columns = (0..<argumentCount).map { "a\($0)" }.joined(separator: ",")
+            try db.execute(sql: """
+                CREATE TABLE t(\(columns));
+                """)
+
+            func test(value: some DatabaseValueConvertible) throws {
+                defer { try! db.execute(sql: "DELETE FROM t") }
+
+                // Execute with non temporary bindings (SQLITE_TRANSIENT),
+                // because there are more than 20 arguments
+                let statement = try db.makeStatement(sql: "INSERT INTO t VALUES (\(databaseQuestionMarks(count: argumentCount)))")
+                try statement.execute(arguments: StatementArguments(Array(repeating: value, count: argumentCount)))
+
+                // Since bindings are not temporary, they are not cleared,
+                // so insert the value again.
+                sqlite3_reset(statement.sqliteStatement)
+                sqlite3_step(statement.sqliteStatement)
+                sqlite3_reset(statement.sqliteStatement)
+
+                // Test that we have inserted the value twice.
+                try XCTAssertEqual(
+                    DatabaseValue.fetchSet(db, sql: "SELECT a0 FROM t"),
+                    [value.databaseValue])
+            }
+
+            try test(value: "Foo")
+            try test(value: "")
+            try test(value: "Hello".data(using: .utf8)!)
+            try test(value: Data())
+            try test(value: 42)
+            try test(value: 1.23)
+        }
+    }
+
+    func test_SQLITE_TRANSIENT() throws {
+        let dbQueue = try makeDatabaseQueue()
+        try dbQueue.write { db in
+            try db.execute(sql: """
+                CREATE TABLE t(a);
+                """)
+
+            func test(value: some DatabaseValueConvertible) throws {
+                defer { try! db.execute(sql: "DELETE FROM t") }
+
+                // Execute with non temporary bindings (SQLITE_TRANSIENT)
+                let statement = try db.makeStatement(sql: "INSERT INTO t VALUES (?)")
+                try statement.setArguments([value])
+                try statement.execute()
+
+                // Since bindings are not temporary, they are not cleared,
+                // so insert the value again.
+                sqlite3_reset(statement.sqliteStatement)
+                sqlite3_step(statement.sqliteStatement)
+                sqlite3_reset(statement.sqliteStatement)
+
+                // Test that we have inserted the value twice.
+                try XCTAssertEqual(
+                    DatabaseValue.fetchSet(db, sql: "SELECT a FROM t"),
+                    [value.databaseValue])
+            }
+
+            try test(value: "Foo")
+            try test(value: "")
+            try test(value: "Hello".data(using: .utf8)!)
+            try test(value: Data())
+            try test(value: 42)
+            try test(value: 1.23)
         }
     }
 }

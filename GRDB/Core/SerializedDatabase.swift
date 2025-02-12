@@ -1,6 +1,6 @@
 import Foundation
 
-/// A class that serializes accesses to a database.
+/// A class that serializes accesses to an SQLite connection.
 final class SerializedDatabase {
     /// The database connection
     private let db: Database
@@ -13,6 +13,9 @@ final class SerializedDatabase {
     
     /// The dispatch queue
     private let queue: DispatchQueue
+    
+    /// If true, overrides `configuration.allowsUnsafeTransactions`.
+    private var allowsUnsafeTransactions = false
     
     init(
         path: String,
@@ -76,10 +79,25 @@ final class SerializedDatabase {
         }
     }
     
-    /// Synchronously executes a block the serialized dispatch queue, and
-    /// returns its result.
+    /// Executes database operations, returns their result after they have
+    /// finished executing, and allows or forbids long-lived transactions.
     ///
-    /// This method is *not* reentrant.
+    /// This method is not reentrant.
+    ///
+    /// - parameter allowingLongLivedTransaction: When true, the
+    ///   ``Configuration/allowsUnsafeTransactions`` configuration flag is
+    ///   ignored until this method is called again with false.
+    func sync<T>(allowingLongLivedTransaction: Bool, _ body: (Database) throws -> T) rethrows -> T {
+        try sync { db in
+            self.allowsUnsafeTransactions = allowingLongLivedTransaction
+            return try body(db)
+        }
+    }
+    
+    /// Executes database operations, and returns their result after they
+    /// have finished executing.
+    ///
+    /// This method is not reentrant.
     func sync<T>(_ block: (Database) throws -> T) rethrows -> T {
         // Three different cases:
         //
@@ -115,15 +133,30 @@ final class SerializedDatabase {
         
         // Case 3
         return try queue.sync {
-            try SchedulingWatchdog.current!.inheritingAllowedDatabases(from: watchdog) {
+            try SchedulingWatchdog.inheritingAllowedDatabases(watchdog.allowedDatabases) {
                 defer { preconditionNoUnsafeTransactionLeft(db) }
                 return try block(db)
             }
         }
     }
     
-    /// Synchronously executes a block the serialized dispatch queue, and
-    /// returns its result.
+    /// Executes database operations, returns their result after they have
+    /// finished executing, and allows or forbids long-lived transactions.
+    ///
+    /// This method is reentrant.
+    ///
+    /// - parameter allowingLongLivedTransaction: When true, the
+    ///   ``Configuration/allowsUnsafeTransactions`` configuration flag is
+    ///   ignored until this method is called again with false.
+    func reentrantSync<T>(allowingLongLivedTransaction: Bool, _ body: (Database) throws -> T) rethrows -> T {
+        try reentrantSync { db in
+            self.allowsUnsafeTransactions = allowingLongLivedTransaction
+            return try body(db)
+        }
+    }
+    
+    /// Executes database operations, and returns their result after they
+    /// have finished executing.
     ///
     /// This method is reentrant.
     func reentrantSync<T>(_ block: (Database) throws -> T) rethrows -> T {
@@ -176,7 +209,7 @@ final class SerializedDatabase {
         
         // Case 3
         return try queue.sync {
-            try SchedulingWatchdog.current!.inheritingAllowedDatabases(from: watchdog) {
+            try SchedulingWatchdog.inheritingAllowedDatabases(watchdog.allowedDatabases) {
                 // Since we are reentrant, a transaction may already be opened.
                 // In this case, don't check for unsafe transaction at the end.
                 if db.isInsideTransaction {
@@ -189,8 +222,8 @@ final class SerializedDatabase {
         }
     }
     
-    /// Asynchronously executes a block in the serialized dispatch queue.
-    func async(_ block: @escaping (Database) -> Void) {
+    /// Schedules database operations for execution, and returns immediately.
+    func async(_ block: @escaping @Sendable (Database) -> Void) {
         queue.async {
             block(self.db)
             self.preconditionNoUnsafeTransactionLeft(self.db)
@@ -208,6 +241,25 @@ final class SerializedDatabase {
     func execute<T>(_ block: (Database) throws -> T) rethrows -> T {
         preconditionValidQueue()
         return try block(db)
+    }
+    
+    /// Asynchrously executes the block.
+    func execute<T: Sendable>(
+        _ block: @escaping @Sendable (Database) throws -> T
+    ) async throws -> T {
+        let dbAccess = CancellableDatabaseAccess()
+        return try await dbAccess.withCancellableContinuation { continuation in
+            self.async { db in
+                do {
+                    let result = try dbAccess.inDatabase(db) {
+                        try block(db)
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
     
     func interrupt() {
@@ -242,7 +294,7 @@ final class SerializedDatabase {
         line: UInt = #line)
     {
         GRDBPrecondition(
-            configuration.allowsUnsafeTransactions || !db.isInsideTransaction,
+            allowsUnsafeTransactions || configuration.allowsUnsafeTransactions || !db.isInsideTransaction,
             message(),
             file: file,
             line: line)
@@ -253,3 +305,108 @@ final class SerializedDatabase {
 // It happens the job of SerializedDatabase is precisely to provide thread-safe
 // access to `Database`.
 extension SerializedDatabase: @unchecked Sendable { }
+
+// MARK: - Task Cancellation Support
+
+enum DatabaseAccessCancellationState: @unchecked Sendable {
+    // @unchecked Sendable because database is only accessed from its
+    // dispatch queue.
+    case notConnected
+    case connected(Database)
+    case cancelled
+    case expired
+}
+
+typealias CancellableDatabaseAccess = Mutex<DatabaseAccessCancellationState>
+
+/// Supports Task cancellation in async database accesses.
+///
+/// Usage:
+///
+/// ```swift
+/// let dbAccess = CancellableDatabaseAccess()
+/// return try dbAccess.withCancellableContinuation { continuation in
+///     asyncDatabaseAccess { db in
+///         do {
+///             let result = try dbAccess.inDatabase(db) {
+///                 // Perform database operations
+///             }
+///             continuation.resume(returning: result)
+///         } catch {
+///             continuation.resume(throwing: error)
+///         }
+///     }
+/// }
+/// ```
+extension CancellableDatabaseAccess: DatabaseCancellable {
+    convenience init() {
+        self.init(.notConnected)
+    }
+    
+    func cancel() {
+        withLock { state in
+            switch state {
+            case let .connected(db):
+                db.cancel()
+                state = .cancelled
+            case .notConnected:
+                state = .cancelled
+            case .cancelled, .expired:
+                break
+            }
+        }
+    }
+    
+    func withCancellableContinuation<Value>(
+        _ fn: (UnsafeContinuation<Value, any Error>) -> Void
+    ) async throws -> Value {
+        try await withTaskCancellationHandler {
+            try checkCancellation()
+            return try await withUnsafeThrowingContinuation { continuation in
+                fn(continuation)
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+    
+    func checkCancellation() throws {
+        try withLock { state in
+            if case .cancelled = state {
+                throw CancellationError()
+            }
+        }
+    }
+    
+    /// Wraps a full database access with cancellation support. When this
+    /// method returns, the database is NOT cancelled.
+    func inDatabase<Value>(_ db: Database, execute work: () throws -> Value) throws -> Value {
+        try withLock { state in
+            switch state {
+            case .connected, .expired:
+                fatalError("Can't use a CancellableDatabaseAccess twice")
+            case .notConnected:
+                state = .connected(db)
+            case .cancelled:
+                throw CancellationError()
+            }
+        }
+        
+        return try throwingFirstError {
+            try work()
+        } finally: {
+            let cancelled = withLock { state in
+                if case .cancelled = state {
+                    db.uncancel()
+                    return true
+                } else {
+                    state = .expired
+                    return false
+                }
+            }
+            if cancelled {
+                throw CancellationError()
+            }
+        }
+    }
+}

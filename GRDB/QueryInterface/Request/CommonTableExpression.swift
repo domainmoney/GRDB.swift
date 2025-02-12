@@ -104,7 +104,7 @@ extension CommonTableExpression {
     /// - parameter tableName: The table name of the common table expression.
     /// - parameter columns: The columns of the common table expression. If nil,
     ///   the columns are the columns of the request.
-    /// - parameter sql: An SQL query.
+    /// - parameter sql: An SQL string.
     /// - parameter arguments: Statement arguments.
     public init(
         recursive: Bool = false,
@@ -123,8 +123,8 @@ extension CommonTableExpression {
     
     /// Creates a common table expression from an SQL *literal*.
     ///
-    /// Literals allow you to safely embed raw values in your SQL, without any
-    /// risk of syntax errors or SQL injection:
+    /// ``SQL`` literals allow you to safely embed raw values in your SQL,
+    /// without any risk of syntax errors or SQL injection:
     ///
     ///     // WITH p AS (SELECT * FROM player WHERE name = 'O''Brien') ...
     ///     let name = "O'Brien"
@@ -137,7 +137,7 @@ extension CommonTableExpression {
     /// - parameter tableName: The table name of the common table expression.
     /// - parameter columns: The columns of the common table expression. If nil,
     ///   the columns are the columns of the request.
-    /// - parameter sqlLiteral: An `SQL` literal.
+    /// - parameter sqlLiteral: An ``SQL`` literal.
     public init(
         recursive: Bool = false,
         named tableName: String,
@@ -204,7 +204,7 @@ extension CommonTableExpression<Row> {
     /// - parameter tableName: The table name of the common table expression.
     /// - parameter columns: The columns of the common table expression. If nil,
     ///   the columns are the columns of the request.
-    /// - parameter sql: An SQL query.
+    /// - parameter sql: An SQL string.
     /// - parameter arguments: Statement arguments.
     public init(
         recursive: Bool = false,
@@ -223,8 +223,8 @@ extension CommonTableExpression<Row> {
     
     /// Creates a common table expression from an SQL *literal*.
     ///
-    /// Literals allow you to safely embed raw values in your SQL, without any
-    /// risk of syntax errors or SQL injection:
+    /// ``SQL`` literals allow you to safely embed raw values in your SQL,
+    /// without any risk of syntax errors or SQL injection:
     ///
     ///     // WITH p AS (SELECT * FROM player WHERE name = 'O''Brien') ...
     ///     let name = "O'Brien"
@@ -237,7 +237,7 @@ extension CommonTableExpression<Row> {
     /// - parameter tableName: The table name of the common table expression.
     /// - parameter columns: The columns of the common table expression. If nil,
     ///   the columns are the columns of the request.
-    /// - parameter sqlLiteral: An `SQL` literal.
+    /// - parameter sqlLiteral: An ``SQL`` literal.
     public init(
         recursive: Bool = false,
         named tableName: String,
@@ -334,7 +334,7 @@ struct SQLCTE {
     
     /// The number of columns in the common table expression.
     func columnCount(_ db: Database) throws -> Int {
-        if let columns = columns {
+        if let columns {
             // No need to hit the database
             return columns.count
         }
@@ -380,12 +380,12 @@ extension CommonTableExpression {
     ///
     /// - parameter cte: A common table expression.
     /// - parameter condition: A function that returns the joining clause.
-    /// - parameter left: A `TableAlias` for the left table.
-    /// - parameter right: A `TableAlias` for the right table.
+    ///   First argument is a ``TableAlias`` for the left table, second
+    ///   argument an alias for the right table.
     /// - returns: An association to the common table expression.
     public func association<Destination>(
         to cte: CommonTableExpression<Destination>,
-        on condition: @escaping (_ left: TableAlias, _ right: TableAlias) -> any SQLExpressible)
+        on condition: @escaping @Sendable (_ left: TableAlias, _ right: TableAlias) -> any SQLExpressible)
     -> JoinAssociation<RowDecoder, Destination>
     {
         JoinAssociation(
@@ -416,12 +416,12 @@ extension CommonTableExpression {
     /// - parameter destination: The record type at the other side of
     ///   the association.
     /// - parameter condition: A function that returns the joining clause.
-    /// - parameter left: A `TableAlias` for the left table.
-    /// - parameter right: A `TableAlias` for the right table.
+    ///   First argument is a ``TableAlias`` for the left table, second
+    ///   argument an alias for the right table.
     /// - returns: An association to the common table expression.
     public func association<Destination>(
         to destination: Destination.Type,
-        on condition: @escaping (_ left: TableAlias, _ right: TableAlias) -> any SQLExpressible)
+        on condition: @escaping @Sendable (_ left: TableAlias, _ right: TableAlias) -> any SQLExpressible)
     -> JoinAssociation<RowDecoder, Destination>
     where Destination: TableRecord
     {
@@ -453,12 +453,12 @@ extension CommonTableExpression {
     ///
     /// - parameter destination: The table at the other side of the association.
     /// - parameter condition: A function that returns the joining clause.
-    /// - parameter left: A `TableAlias` for the left table.
-    /// - parameter right: A `TableAlias` for the right table.
+    ///   First argument is a ``TableAlias`` for the left table, second
+    ///   argument an alias for the right table.
     /// - returns: An association to the common table expression.
     public func association<Destination>(
         to destination: Table<Destination>,
-        on condition: @escaping (_ left: TableAlias, _ right: TableAlias) -> any SQLExpressible)
+        on condition: @escaping @Sendable (_ left: TableAlias, _ right: TableAlias) -> any SQLExpressible)
     -> JoinAssociation<RowDecoder, Destination>
     {
         JoinAssociation(

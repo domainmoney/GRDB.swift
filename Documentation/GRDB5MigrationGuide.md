@@ -197,7 +197,7 @@ The changes can quite impact your application. We'll describe them below, as wel
         scheduling: .immediate,
         onError: { error in ... },
         onChange: { [weak self] (players: [Player]) in
-            guard let self = self else { return }
+            guard let self else { return }
             self.updateView(players)
         })
     // <- Here the view has already been updated.
@@ -397,7 +397,9 @@ let publisher = observation
      
     // NEW: GRDB 5
     let query: SQL = "UPDATE player SET name = \(name) WHERE id = \(id)"
-    let (sql, arguments) = try dbQueue.read(query.build)
+    let (sql, arguments) = try dbQueue.read { db in
+        try query.build(db)
+    }
     print(sql)             // prints "UPDATE player SET name = ? WHERE id = ?"
     print(arguments)       // prints ["O'Brien", 42]
     ```
@@ -499,10 +501,10 @@ let publisher = observation
     This change is innocuous for database boolean values that are `0`, `1`, or `NULL`. However, it is a breaking change for all other database values.
 
 
-[ValueObservation]: ../README.md#valueobservation
-[DatabaseRegionObservation]: ../README.md#databaseregionobservation
-[RxGRDB]: http://github.com/RxSwiftCommunity/RxGRDB
-[removeDuplicates]: ../README.md#valueobservationremoveduplicates
+[ValueObservation]: https://swiftpackageindex.com/groue/GRDB.swift/documentation/grdb/valueobservation
+[DatabaseRegionObservation]: https://swiftpackageindex.com/groue/GRDB.swift/documentation/grdb/databaseregionobservation
+[RxGRDB]: https://github.com/RxSwiftCommunity/RxGRDB
+[removeDuplicates]: https://swiftpackageindex.com/groue/GRDB.swift/documentation/grdb/valueobservation/removeduplicates()
 [Custom SQL functions]: ../README.md#custom-sql-functions
 [Batch updates]: ../README.md#update-requests
 [SQL Interpolation]: SQLInterpolation.md
@@ -510,4 +512,4 @@ let publisher = observation
 [SQLRequest]: ../README.md#custom-requests
 [QueryInterfaceRequest]: ../README.md#requests
 [Combine publishers]: Combine.md
-[Database Observation]: ../README.md#database-changes-observation
+[Database Observation]: https://swiftpackageindex.com/groue/GRDB.swift/documentation/grdb/databaseobservation

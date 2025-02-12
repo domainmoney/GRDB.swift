@@ -1,4 +1,3 @@
-/// :nodoc:
 extension SQLInterpolation {
     
     // MARK: - TableRecord
@@ -20,6 +19,16 @@ extension SQLInterpolation {
         appendLiteral(table.databaseTableName.quotedDatabaseIdentifier)
     }
     
+    /// Appends the table name.
+    ///
+    ///     // SELECT * FROM player
+    ///     let playerTable = Table("player")
+    ///     let request: SQLRequest<Player> = "SELECT * FROM \(playerTable)"
+    @_disfavoredOverload
+    public mutating func appendInterpolation<T>(_ table: Table<T>) {
+        appendLiteral(table.tableName.quotedDatabaseIdentifier)
+    }
+    
     /// Appends the table name of the record.
     ///
     ///     // INSERT INTO player ...
@@ -27,6 +36,15 @@ extension SQLInterpolation {
     ///     let request: SQLRequest<Player> = "INSERT INTO \(tableOf: player) ..."
     public mutating func appendInterpolation(tableOf record: some TableRecord) {
         appendInterpolation(type(of: record))
+    }
+    
+    /// Appends a quoted identifier.
+    ///
+    ///     // INSERT INTO "group" ...
+    ///     let tableName = "group"
+    ///     let request: SQLRequest<Player> = "INSERT INTO \(identifier: tableName) ..."
+    public mutating func appendInterpolation(identifier: String) {
+        appendLiteral(identifier.quotedDatabaseIdentifier)
     }
     
     /// Appends the table name of the record.
@@ -49,7 +67,12 @@ extension SQLInterpolation {
     ///     let player: Player = ...
     ///     let request: SQLRequest<Player> = "SELECT \(columnsOf: Player.self, tableAlias: "p") FROM player p"
     public mutating func appendInterpolation(columnsOf recordType: (some TableRecord).Type, tableAlias: String? = nil) {
-        let alias = TableAlias(name: tableAlias ?? recordType.databaseTableName)
+        // Make sure we provide the tableName, so that we can interpolate
+        // the columns of a type whose `databaseSelection` contains an
+        // instance of `AllColumnsExcluding`.
+        let alias = TableAlias(
+            tableName: recordType.databaseTableName,
+            userName: tableAlias ?? recordType.databaseTableName)
         elements.append(contentsOf: recordType.databaseSelection
                             .map { CollectionOfOne(.selection($0.sqlSelection.qualified(with: alias))) }
                             .joined(separator: CollectionOfOne(.sql(", "))))
@@ -61,7 +84,7 @@ extension SQLInterpolation {
     ///
     ///     // SELECT * FROM player
     ///     let request: SQLRequest<Player> = """
-    ///         SELECT \(AllColumns()) FROM player
+    ///         SELECT \(.allColumns) FROM player
     ///         """
     public mutating func appendInterpolation(_ selection: some SQLSelectable) {
         elements.append(.selection(selection.sqlSelection))
@@ -71,11 +94,11 @@ extension SQLInterpolation {
     ///
     ///     // SELECT * FROM player
     ///     let request: SQLRequest<Player> = """
-    ///         SELECT \(AllColumns()) FROM player
+    ///         SELECT \(.allColumns) FROM player
     ///         """
     @_disfavoredOverload
     public mutating func appendInterpolation(_ selection: (any SQLSelectable)?) {
-        if let selection = selection {
+        if let selection {
             elements.append(.selection(selection.sqlSelection))
         } else {
             appendLiteral("NULL")
@@ -128,7 +151,7 @@ extension SQLInterpolation {
     ///         """
     @_disfavoredOverload
     public mutating func appendInterpolation(_ expressible: (any SQLExpressible)?) {
-        if let expressible = expressible {
+        if let expressible {
             elements.append(.expression(expressible.sqlExpression))
         } else {
             appendLiteral("NULL")
@@ -209,9 +232,9 @@ extension SQLInterpolation {
     ///     let request: SQLRequest<Player> = """
     ///         SELECT * FROM player WHERE id IN \(ids)
     ///         """
-    public mutating func appendInterpolation<S>(_ sequence: S)
-    where S: Sequence, S.Element: SQLExpressible
-    {
+    public mutating func appendInterpolation(
+        _ sequence: some Sequence<some SQLExpressible>
+    ) {
         let e: [SQL.Element] = sequence.map { .expression($0.sqlExpression) }
         if e.isEmpty {
             appendLiteral("(SELECT NULL WHERE NULL)")
@@ -237,15 +260,14 @@ extension SQLInterpolation {
     ///     let request: SQLRequest<Player> = """
     ///         SELECT * FROM player WHERE a IN \(expressions)
     ///         """
-    public mutating func appendInterpolation<S>(_ sequence: S)
-    where S: Sequence, S.Element == any SQLExpressible
-    {
+    public mutating func appendInterpolation(
+        _ sequence: some Sequence<any SQLExpressible>
+    ) {
         appendInterpolation(sequence.lazy.map(\.sqlExpression))
     }
     
     // When a value is both an expression and a sequence of expressions,
     // favor the expression side. Use case: Foundation.Data interpolation.
-    /// :nodoc:
     public mutating func appendInterpolation<S>(_ expressible: S)
     where S: SQLExpressible, S: Sequence, S.Element: SQLExpressible
     {

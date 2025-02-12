@@ -19,21 +19,25 @@ private enum StrategyLowercaseString: StrategyProvider {
 }
 
 private struct RecordWithUUID<Strategy: StrategyProvider>: EncodableRecord, Encodable {
-    static var databaseUUIDEncodingStrategy: DatabaseUUIDEncodingStrategy { Strategy.strategy }
+    static func databaseUUIDEncodingStrategy(for column: String) -> DatabaseUUIDEncodingStrategy {
+        Strategy.strategy
+    }
+    
     var uuid: UUID
 }
 
-@available(OSX 10.15, iOS 13.0, tvOS 13.0, watchOS 6, *)
 extension RecordWithUUID: Identifiable {
     var id: UUID { uuid }
 }
 
 private struct RecordWithOptionalUUID<Strategy: StrategyProvider>: EncodableRecord, Encodable {
-    static var databaseUUIDEncodingStrategy: DatabaseUUIDEncodingStrategy { Strategy.strategy }
+    static func databaseUUIDEncodingStrategy(for column: String) -> DatabaseUUIDEncodingStrategy {
+        Strategy.strategy
+    }
+    
     var uuid: UUID?
 }
 
-@available(OSX 10.15, iOS 13.0, tvOS 13.0, watchOS 6, *)
 extension RecordWithOptionalUUID: Identifiable {
     var id: UUID? { uuid }
 }
@@ -53,7 +57,11 @@ class DatabaseUUIDEncodingStrategyTests: GRDBTestCase {
         }
     }
     
-    private func test<Strategy: StrategyProvider>(strategy: Strategy.Type, encodesUUID uuid: UUID, as value: DatabaseValueConvertible) throws {
+    private func test<Strategy: StrategyProvider>(
+        strategy: Strategy.Type,
+        encodesUUID uuid: UUID,
+        as value: any DatabaseValueConvertible)
+    throws {
         try test(record: RecordWithUUID<Strategy>(uuid: uuid), expectedStorage: value.databaseValue.storage)
         try test(record: RecordWithOptionalUUID<Strategy>(uuid: uuid), expectedStorage: value.databaseValue.storage)
     }
@@ -129,7 +137,7 @@ extension DatabaseUUIDEncodingStrategyTests {
 extension DatabaseUUIDEncodingStrategyTests {
     func testFilterKey() throws {
         try makeDatabaseQueue().write { db in
-            try db.create(table: "t") { $0.column("id").primaryKey() }
+            try db.create(table: "t") { $0.primaryKey("id", .blob) }
             let uuids = [
                 UUID(uuidString: "61626364-6566-6768-696A-6B6C6D6E6F70")!,
                 UUID(uuidString: "56e7d8d3-e9e4-48b6-968e-8d102833af00")!,
@@ -180,12 +188,8 @@ extension DatabaseUUIDEncodingStrategyTests {
     }
     
     func testFilterID() throws {
-        guard #available(OSX 10.15, iOS 13.0, tvOS 13.0, watchOS 6, *) else {
-            throw XCTSkip("Identifiable not available")
-        }
-        
         try makeDatabaseQueue().write { db in
-            try db.create(table: "t") { $0.column("id").primaryKey() }
+            try db.create(table: "t") { $0.primaryKey("id", .blob) }
             let uuids = [
                 UUID(uuidString: "61626364-6566-6768-696A-6B6C6D6E6F70")!,
                 UUID(uuidString: "56e7d8d3-e9e4-48b6-968e-8d102833af00")!,
@@ -299,12 +303,8 @@ extension DatabaseUUIDEncodingStrategyTests {
     }
     
     func testDeleteID() throws {
-        guard #available(OSX 10.15, iOS 13.0, tvOS 13.0, watchOS 6, *) else {
-            throw XCTSkip("Identifiable not available")
-        }
-        
         try makeDatabaseQueue().write { db in
-            try db.create(table: "t") { $0.column("id").primaryKey() }
+            try db.create(table: "t") { $0.primaryKey("id", .blob) }
             let uuids = [
                 UUID(uuidString: "61626364-6566-6768-696A-6B6C6D6E6F70")!,
                 UUID(uuidString: "56e7d8d3-e9e4-48b6-968e-8d102833af00")!,
@@ -353,7 +353,7 @@ extension DatabaseUUIDEncodingStrategyTests {
             }
             
             do {
-                sqlQueries.removeAll()
+                clearSQLQueries()
                 try Table<RecordWithOptionalUUID<StrategyDeferredToUUID>>("t").deleteOne(db, id: nil)
                 XCTAssertNil(lastSQLQuery) // Database not hit
             }
@@ -373,7 +373,7 @@ extension DatabaseUUIDEncodingStrategyTests {
             }
             
             do {
-                sqlQueries.removeAll()
+                clearSQLQueries()
                 try Table<RecordWithOptionalUUID<StrategyUppercaseString>>("t").deleteOne(db, id: nil)
                 XCTAssertNil(lastSQLQuery) // Database not hit
             }
@@ -393,7 +393,7 @@ extension DatabaseUUIDEncodingStrategyTests {
             }
             
             do {
-                sqlQueries.removeAll()
+                clearSQLQueries()
                 try Table<RecordWithOptionalUUID<StrategyLowercaseString>>("t").deleteOne(db, id: nil)
                 XCTAssertNil(lastSQLQuery) // Database not hit
             }

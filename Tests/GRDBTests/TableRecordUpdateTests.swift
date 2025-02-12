@@ -17,7 +17,6 @@ private struct Player: Codable, PersistableRecord, FetchableRecord, Hashable {
     }
 }
 
-@available(OSX 10.15, iOS 13.0, tvOS 13.0, watchOS 6, *)
 extension Player: Identifiable { }
 
 private enum Columns: String, ColumnExpression {
@@ -56,18 +55,16 @@ class TableRecordUpdateTests: GRDBTestCase {
                 UPDATE "player" SET "score" = 0 WHERE "id" IN (1, 2)
                 """)
             
-            if #available(OSX 10.15, iOS 13.0, tvOS 13.0, watchOS 6, *) {
-                try Player.filter(id: 1).updateAll(db, assignment)
-                XCTAssertEqual(self.lastSQLQuery, """
+            try Player.filter(id: 1).updateAll(db, assignment)
+            XCTAssertEqual(self.lastSQLQuery, """
                     UPDATE "player" SET "score" = 0 WHERE "id" = 1
                     """)
-                
-                try Player.filter(ids: [1, 2]).updateAll(db, assignment)
-                XCTAssertEqual(self.lastSQLQuery, """
+            
+            try Player.filter(ids: [1, 2]).updateAll(db, assignment)
+            XCTAssertEqual(self.lastSQLQuery, """
                     UPDATE "player" SET "score" = 0 WHERE "id" IN (1, 2)
                     """)
-            }
-
+            
             try Player.filter(sql: "id = 1").updateAll(db, assignment)
             XCTAssertEqual(self.lastSQLQuery, """
                 UPDATE "player" SET "score" = 0 WHERE id = 1
@@ -119,11 +116,11 @@ class TableRecordUpdateTests: GRDBTestCase {
     
     func testRequestUpdateAndFetchStatement() throws {
 #if GRDBCUSTOMSQLITE || GRDBCIPHER
-        guard sqlite3_libversion_number() >= 3035000 else {
+        guard Database.sqliteLibVersionNumber >= 3035000 else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #else
-        guard #available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) else {
+        guard #available(iOS 15, macOS 12, tvOS 15, watchOS 8, *) else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #endif
@@ -132,21 +129,37 @@ class TableRecordUpdateTests: GRDBTestCase {
             try Player.createTable(db)
             let assignment = Columns.score.set(to: 0)
             
-            let request = Player.all()
-            let statement = try request.updateAndFetchStatement(db, [assignment], selection: [AllColumns()])
-            XCTAssertEqual(statement.sql, "UPDATE \"player\" SET \"score\" = ? RETURNING *")
-            XCTAssertEqual(statement.arguments, [0])
-            XCTAssertEqual(statement.columnNames, ["id", "name", "score", "bonus"])
+            do {
+                let request = Player.all()
+                let statement = try request.updateAndFetchStatement(db, [assignment], selection: [Column("score")])
+                XCTAssertEqual(statement.sql, "UPDATE \"player\" SET \"score\" = ? RETURNING \"score\"")
+                XCTAssertEqual(statement.arguments, [0])
+                XCTAssertEqual(statement.columnNames, ["score"])
+            }
+            do {
+                let request = Player.all()
+                let statement = try request.updateAndFetchStatement(db, [assignment], selection: [.allColumns])
+                XCTAssertEqual(statement.sql, "UPDATE \"player\" SET \"score\" = ? RETURNING *")
+                XCTAssertEqual(statement.arguments, [0])
+                XCTAssertEqual(statement.columnNames, ["id", "name", "score", "bonus"])
+            }
+            do {
+                let request = Player.all()
+                let statement = try request.updateAndFetchStatement(db, [assignment], selection: [.allColumns(excluding: ["name"])])
+                XCTAssertEqual(statement.sql, "UPDATE \"player\" SET \"score\" = ? RETURNING \"id\", \"score\", \"bonus\"")
+                XCTAssertEqual(statement.arguments, [0])
+                XCTAssertEqual(statement.columnNames, ["id", "score", "bonus"])
+            }
         }
     }
     
     func testRequestUpdateAndFetchCursor() throws {
 #if GRDBCUSTOMSQLITE || GRDBCIPHER
-        guard sqlite3_libversion_number() >= 3035000 else {
+        guard Database.sqliteLibVersionNumber >= 3035000 else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #else
-        guard #available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) else {
+        guard #available(iOS 15, macOS 12, tvOS 15, watchOS 8, *) else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #endif
@@ -169,11 +182,11 @@ class TableRecordUpdateTests: GRDBTestCase {
     
     func testRequestUpdateAndFetchAll() throws {
 #if GRDBCUSTOMSQLITE || GRDBCIPHER
-        guard sqlite3_libversion_number() >= 3035000 else {
+        guard Database.sqliteLibVersionNumber >= 3035000 else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #else
-        guard #available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) else {
+        guard #available(iOS 15, macOS 12, tvOS 15, watchOS 8, *) else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #endif
@@ -197,11 +210,11 @@ class TableRecordUpdateTests: GRDBTestCase {
     
     func testRequestUpdateAndFetchSet() throws {
 #if GRDBCUSTOMSQLITE || GRDBCIPHER
-        guard sqlite3_libversion_number() >= 3035000 else {
+        guard Database.sqliteLibVersionNumber >= 3035000 else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #else
-        guard #available(iOS 15.0, tvOS 15.0, watchOS 8.0, macOS 12.0, *) else {
+        guard #available(iOS 15, macOS 12, tvOS 15, watchOS 8, *) else {
             throw XCTSkip("RETURNING clause is not available")
         }
 #endif
@@ -347,6 +360,110 @@ class TableRecordUpdateTests: GRDBTestCase {
         }
     }
     
+    func testAssignmentBitwiseAndAssign() throws {
+        try makeDatabaseQueue().write { db in
+            try Player.createTable(db)
+            
+            try Player.updateAll(db, Columns.score &= 1)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" & 1
+                """)
+            
+            try Player.updateAll(db, Columns.score &= Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" & "bonus"
+                """)
+            
+            try Player.updateAll(db, Columns.score &= -Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" & (-"bonus")
+                """)
+            
+            try Player.updateAll(db, Columns.score &= Columns.bonus * 2)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" & ("bonus" * 2)
+                """)
+        }
+    }
+    
+    func testAssignmentBitwiseOrAssign() throws {
+        try makeDatabaseQueue().write { db in
+            try Player.createTable(db)
+            
+            try Player.updateAll(db, Columns.score |= 1)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" | 1
+                """)
+            
+            try Player.updateAll(db, Columns.score |= Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" | "bonus"
+                """)
+            
+            try Player.updateAll(db, Columns.score |= -Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" | (-"bonus")
+                """)
+            
+            try Player.updateAll(db, Columns.score |= Columns.bonus * 2)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" | ("bonus" * 2)
+                """)
+        }
+    }
+    
+    func testAssignmentLeftShiftAssign() throws {
+        try makeDatabaseQueue().write { db in
+            try Player.createTable(db)
+            
+            try Player.updateAll(db, Columns.score <<= 1)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" << 1
+                """)
+            
+            try Player.updateAll(db, Columns.score <<= Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" << "bonus"
+                """)
+            
+            try Player.updateAll(db, Columns.score <<= -Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" << (-"bonus")
+                """)
+            
+            try Player.updateAll(db, Columns.score <<= Columns.bonus * 2)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" << ("bonus" * 2)
+                """)
+        }
+    }
+    
+    func testAssignmentRightShiftAssign() throws {
+        try makeDatabaseQueue().write { db in
+            try Player.createTable(db)
+            
+            try Player.updateAll(db, Columns.score >>= 1)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" >> 1
+                """)
+            
+            try Player.updateAll(db, Columns.score >>= Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" >> "bonus"
+                """)
+            
+            try Player.updateAll(db, Columns.score >>= -Columns.bonus)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" >> (-"bonus")
+                """)
+            
+            try Player.updateAll(db, Columns.score >>= Columns.bonus * 2)
+            XCTAssertEqual(self.lastSQLQuery, """
+                UPDATE "player" SET "score" = "score" >> ("bonus" * 2)
+                """)
+        }
+    }
+    
     func testMultipleAssignments() throws {
         try makeDatabaseQueue().write { db in
             try Player.createTable(db)
@@ -376,7 +493,7 @@ class TableRecordUpdateTests: GRDBTestCase {
     func testUpdateAllWithoutAssignmentDoesNotAccessTheDatabase() throws {
         try makeDatabaseQueue().write { db in
             try Player.createTable(db)
-            sqlQueries.removeAll()
+            clearSQLQueries()
             try XCTAssertEqual(Player.updateAll(db, []), 0)
             try XCTAssertEqual(Player.all().updateAll(db, []), 0)
             XCTAssert(sqlQueries.isEmpty)
@@ -570,7 +687,7 @@ class TableRecordUpdateTests: GRDBTestCase {
             
             try db.create(table: "player") { t in
                 t.autoIncrementedPrimaryKey("id")
-                t.column("teamId", .integer).references("team")
+                t.belongsTo("team")
                 t.column("score", .integer)
             }
             

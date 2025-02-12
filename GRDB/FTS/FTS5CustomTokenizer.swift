@@ -1,11 +1,17 @@
 #if SQLITE_ENABLE_FTS5
+import SQLCipher
 
-/// The protocol for custom FTS5 tokenizers.
+/// A type that implements a custom tokenizer for the ``FTS5`` full-text engine.
+///
+/// See [FTS5 Tokenizers](https://github.com/groue/GRDB.swift/blob/master/Documentation/FTS5Tokenizers.md)
+/// for more information.
 public protocol FTS5CustomTokenizer: FTS5Tokenizer {
-    /// The name of the tokenizer; should uniquely identify your custom
-    /// tokenizer.
+    /// The name of the tokenizer.
+    ///
+    /// The name should uniquely identify the tokenizer: don't use a built-in
+    /// name such as `ascii`, `porter` or `unicode61`.
     static var name: String { get }
-    
+
     /// Creates a custom tokenizer.
     ///
     /// The arguments parameter is an array of String built from the CREATE
@@ -22,12 +28,12 @@ public protocol FTS5CustomTokenizer: FTS5Tokenizer {
 }
 
 extension FTS5CustomTokenizer {
-    
+
     /// Creates an FTS5 tokenizer descriptor.
     ///
     ///     class MyTokenizer : FTS5CustomTokenizer { ... }
     ///
-    ///     db.create(virtualTable: "book", using: FTS5()) { t in
+    ///     try db.create(virtualTable: "book", using: FTS5()) { t in
     ///         let tokenizer = MyTokenizer.tokenizerDescriptor(arguments: ["unicode61", "remove_diacritics", "0"])
     ///         t.tokenizer = tokenizer
     ///     }
@@ -37,13 +43,13 @@ extension FTS5CustomTokenizer {
 }
 
 extension Database {
-    
+
     // MARK: - FTS5
-    
+
     private class FTS5TokenizerConstructor {
         let db: Database
         let constructor: (Database, [String], UnsafeMutablePointer<OpaquePointer?>?) -> CInt
-        
+
         init(
             db: Database,
             constructor: @escaping (Database, [String], UnsafeMutablePointer<OpaquePointer?>?) -> CInt)
@@ -52,14 +58,14 @@ extension Database {
             self.constructor = constructor
         }
     }
-    
+
     /// Add a custom FTS5 tokenizer.
     ///
     ///     class MyTokenizer : FTS5CustomTokenizer { ... }
     ///     db.add(tokenizer: MyTokenizer.self)
-    public func add<Tokenizer: FTS5CustomTokenizer>(tokenizer: Tokenizer.Type) {
+    public func add(tokenizer: (some FTS5CustomTokenizer).Type) {
         let api = FTS5.api(self)
-        
+
         // Swift won't let the @convention(c) xCreate() function below create
         // an instance of the generic Tokenizer type.
         //
@@ -72,12 +78,12 @@ extension Database {
                     return SQLITE_ERROR
                 }
                 do {
-                    let tokenizer = try Tokenizer(db: db, arguments: arguments)
-                    
+                    let tokenizer = try tokenizer.init(db: db, arguments: arguments)
+
                     // Tokenizer must remain alive until xDeleteTokenizer()
                     // is called, as the xDelete member of xTokenizer
                     let tokenizerPointer = OpaquePointer(Unmanaged.passRetained(tokenizer).toOpaque())
-                    
+
                     tokenizerHandle.pointee = tokenizerPointer
                     return SQLITE_OK
                 } catch let error as DatabaseError {
@@ -86,16 +92,16 @@ extension Database {
                     return SQLITE_ERROR
                 }
             })
-        
+
         // Constructor must remain alive until deleteConstructor() is
         // called, as the last argument of the xCreateTokenizer() function.
         let constructorPointer = Unmanaged.passRetained(constructor).toOpaque()
-        
+
         func deleteConstructor(constructorPointer: UnsafeMutableRawPointer?) {
             guard let constructorPointer else { return }
             Unmanaged<AnyObject>.fromOpaque(constructorPointer).release()
         }
-        
+
         func xCreateTokenizer(
             constructorPointer: UnsafeMutableRawPointer?,
             azArg: UnsafeMutablePointer<UnsafePointer<Int8>?>?,
@@ -108,7 +114,7 @@ extension Database {
             }
             let constructor = Unmanaged<FTS5TokenizerConstructor>.fromOpaque(constructorPointer).takeUnretainedValue()
             var arguments: [String] = []
-            if let azArg = azArg {
+            if let azArg {
                 for i in 0..<Int(nArg) {
                     if let cstr = azArg[i] {
                         arguments.append(String(cString: cstr))
@@ -117,20 +123,20 @@ extension Database {
             }
             return constructor.constructor(constructor.db, arguments, tokenizerHandle)
         }
-        
+
         func xDeleteTokenizer(tokenizerPointer: OpaquePointer?) {
             guard let tokenizerPointer else { return }
             Unmanaged<AnyObject>.fromOpaque(UnsafeMutableRawPointer(tokenizerPointer)).release()
         }
-        
+
         func xTokenize(
             tokenizerPointer: OpaquePointer?,
             context: UnsafeMutableRawPointer?,
             flags: CInt,
-            pText: UnsafePointer<Int8>?,
+            pText: UnsafePointer<CChar>?,
             nText: CInt,
             // swiftlint:disable:next line_length
-            tokenCallback: (@convention(c) (UnsafeMutableRawPointer?, CInt, UnsafePointer<Int8>?, CInt, CInt, CInt) -> CInt)?)
+            tokenCallback: (@convention(c) (UnsafeMutableRawPointer?, CInt, UnsafePointer<CChar>?, CInt, CInt, CInt) -> CInt)?)
         -> CInt
         {
             guard let tokenizerPointer else {
@@ -149,12 +155,12 @@ extension Database {
                 nText: nText,
                 tokenCallback: tokenCallback!)
         }
-        
+
         var xTokenizer = fts5_tokenizer(xCreate: xCreateTokenizer, xDelete: xDeleteTokenizer, xTokenize: xTokenize)
         let code = withUnsafeMutablePointer(to: &xTokenizer) { xTokenizerPointer in
             api.pointee.xCreateTokenizer(
                 UnsafeMutablePointer(mutating: api),
-                Tokenizer.name,
+                tokenizer.name,
                 constructorPointer,
                 xTokenizerPointer,
                 deleteConstructor)
