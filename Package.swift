@@ -47,7 +47,7 @@ let package = Package(
             dependencies: ["SQLCipher"],
             path: "GRDB",
             resources: [.copy("PrivacyInfo.xcprivacy")],
-            cSettings: [
+            cSettings: cSettings + [
                 .define("SQLITE_HAS_CODEC"),
                 .define("SQLITE_TEMP_STORE", to: "2"),
                 .define("SQLITE_SOUNDEX"),
@@ -68,14 +68,14 @@ let package = Package(
                 .define("HAVE_USLEEP", to: "1"),
                 .define("SQLITE_MAX_VARIABLE_NUMBER", to: "99999")
             ],
-            swiftSettings: [
+            swiftSettings: swiftSettings + [
                 .define("SQLITE_HAS_CODEC"),
                 .define("GRDBCIPHER"),
                 .define("SQLITE_ENABLE_FTS5")
             ]),
         .target(
             name: "SQLCipher",
-            cSettings: [
+            cSettings: cSettings + [
                 .define("NDEBUG"),
                 .define("SQLITE_HAS_CODEC"),
                 .define("SQLITE_TEMP_STORE", to: "2"),
